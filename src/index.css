@@ -171,6 +171,15 @@
   }
 }
 
+@keyframes drawer-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 .animate-fade-in {
   animation: fade-in 0.18s ease-out both;
 }
@@ -193,6 +202,10 @@
 
 .animate-drawer-in {
   animation: drawer-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.animate-drawer-in-left {
+  animation: drawer-in-left 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
