@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { AppShell } from './components/layout/AppShell'
 import { ChargeModal } from './components/modals/ChargeModal'
 import { ReceiptModal } from './components/modals/ReceiptModal'
+import { GlobalSearch } from './components/search/GlobalSearch'
 import { ToastProvider } from './components/ui/Toast'
 import type { PageId } from './config'
+import { OrdersPage } from './pages/OrdersPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { POSPage } from './pages/POSPage'
 import type { OrderRecord } from './types'
@@ -20,9 +22,17 @@ function AppContent() {
       onNavigate={setActivePage}
       sidebarOpen={sidebarOpen}
       onToggleSidebar={() => setSidebarOpen((open) => !open)}
+      searchSlot={
+        <GlobalSearch
+          onNavigate={setActivePage}
+          onOpenReceipt={setReceiptOrder}
+        />
+      }
     >
       {activePage === 'pos' ? (
         <POSPage onCharge={() => setChargeOpen(true)} />
+      ) : activePage === 'orders' ? (
+        <OrdersPage onOpenReceipt={setReceiptOrder} />
       ) : (
         <PlaceholderPage
           pageId={activePage}
