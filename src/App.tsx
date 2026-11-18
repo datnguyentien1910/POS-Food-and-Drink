@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AppShell } from './components/layout/AppShell'
 import { ChargeModal } from './components/modals/ChargeModal'
 import { ReceiptModal } from './components/modals/ReceiptModal'
-import { ToastProvider, useToast } from './components/ui/Toast'
+import { ToastProvider } from './components/ui/Toast'
 import type { PageId } from './config'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { POSPage } from './pages/POSPage'
@@ -13,7 +13,6 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [chargeOpen, setChargeOpen] = useState(false)
   const [receiptOrder, setReceiptOrder] = useState<OrderRecord | null>(null)
-  const { push } = useToast()
 
   return (
     <AppShell
@@ -23,12 +22,7 @@ function AppContent() {
       onToggleSidebar={() => setSidebarOpen((open) => !open)}
     >
       {activePage === 'pos' ? (
-        <POSPage
-          onCharge={() => setChargeOpen(true)}
-          onOpenDrafts={() =>
-            push('Danh sách đơn nháp đang được hoàn thiện.', 'info')
-          }
-        />
+        <POSPage onCharge={() => setChargeOpen(true)} />
       ) : (
         <PlaceholderPage
           pageId={activePage}
