@@ -1,0 +1,238 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #f9f8fa;
+  --color-surface: #ffffff;
+  --color-line: #ece8f1;
+  --color-line-strong: #ded8e8;
+  --color-ink: #1c1514;
+  --color-muted: #7a7370;
+  --color-faint: #a9a29e;
+  --color-primary: #241eb2;
+  --color-primary-hover: #1d1893;
+  --color-primary-soft: #eeecff;
+  --color-primary-ring: #c9c5ff;
+  --color-positive: #668e77;
+  --color-positive-soft: #eaf3ee;
+  --color-negative: #ba5118;
+  --color-negative-soft: #fbece4;
+  --color-gold: #d8a047;
+  --color-gold-soft: #fbf3e3;
+  --color-brown: #58453b;
+
+  --font-sans:
+    'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+
+  --radius-card: 16px;
+  --shadow-card:
+    0 1px 2px rgba(28, 21, 20, 0.04), 0 10px 30px -24px rgba(28, 21, 20, 0.28);
+  --shadow-pop: 0 22px 55px -22px rgba(28, 21, 20, 0.28);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+
+  dialog::backdrop {
+    background: rgba(28, 21, 20, 0.34);
+    backdrop-filter: blur(3px);
+  }
+}
+
+@layer components {
+  .card {
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  .thin-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--color-line-strong);
+  }
+
+  .thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out both;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.animate-pop {
+  animation: pop 0.28s ease-out;
+}
+
+.animate-toast-in {
+  animation: toast-in 0.2s ease-out both;
+}
+
+.animate-drawer-in {
+  animation: drawer-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+
+  .print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 80mm;
+    margin: 0;
+    padding: 0;
+    color: #000;
+    background: #fff;
+    box-shadow: none;
+    border: 0;
+  }
+
+  @page {
+    margin: 4mm;
+  }
+}
