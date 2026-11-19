@@ -13,3 +13,10 @@ export interface LoginResponse {
   authMethod: 'password' | 'pin';
   expiresAt: string;
 }
+
+/** Minimal staff card shown on the PIN login screen. */
+export interface StaffMember {
+  id: string;
+  name: string;
+  role: Role;
+}
