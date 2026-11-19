@@ -11,7 +11,13 @@ export function originCheckMiddleware(allowedOrigins: string[]) {
     }
 
     const origin = request.header('origin');
-    if (origin && !allowedOrigins.includes(origin)) {
+    const host = request.header('host');
+    const sameOrigin =
+      origin !== undefined &&
+      host !== undefined &&
+      origin === `${request.protocol}://${host}`;
+
+    if (origin && !allowedOrigins.includes(origin) && !sameOrigin) {
       response.status(403).json({
         error: {
           code: 'FORBIDDEN',
