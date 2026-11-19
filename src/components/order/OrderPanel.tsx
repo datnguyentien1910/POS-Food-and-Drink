@@ -96,7 +96,7 @@ export function OrderPanel({
             aria-label="Đơn nháp"
             title="Đơn nháp"
             onClick={onOpenDrafts}
-            className="relative grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-bg hover:text-ink"
+            className="touch-target relative grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-bg hover:text-ink"
           >
             <ClipboardList size={16} />
             {drafts.length > 0 ? (

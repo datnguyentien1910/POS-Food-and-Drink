@@ -38,7 +38,7 @@ export function Button({
     <button
       type={type}
       className={cx(
-        'inline-flex items-center justify-center gap-2 font-semibold transition-[background-color,border-color,color,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-45',
+        'touch-target inline-flex items-center justify-center gap-2 font-semibold transition-[background-color,border-color,color,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-45',
         variants[variant],
         sizes[size],
         fullWidth && 'w-full',

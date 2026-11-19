@@ -24,7 +24,7 @@ export function CategoryTabs({ active, onChange }: CategoryTabsProps) {
             aria-pressed={isActive}
             onClick={() => onChange(category.id)}
             className={cx(
-              'shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition-colors duration-150',
+              'touch-target shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition-colors duration-150 [@media(pointer:coarse)]:min-h-11',
               isActive
                 ? 'bg-primary text-white shadow-[0_8px_18px_-12px_rgba(36,30,178,0.9)]'
                 : 'text-muted hover:bg-bg hover:text-ink',

@@ -64,7 +64,7 @@ export function Sidebar({
               aria-current={isActive ? 'page' : undefined}
               onClick={() => onNavigate(page.id)}
               className={cx(
-                'flex items-center gap-3 rounded-xl py-2 text-left text-[13px] font-semibold transition-colors duration-150',
+                'touch-target flex items-center gap-3 rounded-xl py-2 text-left text-[13px] font-semibold transition-colors duration-150 [@media(pointer:coarse)]:min-h-11',
                 collapsed ? 'justify-center px-2' : 'px-3.5',
                 isActive
                   ? 'bg-primary-soft text-primary shadow-[inset_0_0_0_1px_rgba(36,30,178,0.06)]'
@@ -116,7 +116,7 @@ export function Sidebar({
 
           <a
             href={`mailto:${RESTAURANT.supportEmail}`}
-            className="flex items-center gap-3 rounded-xl px-1 py-1 text-muted transition-colors hover:text-ink"
+            className="touch-target flex items-center gap-3 rounded-xl px-1 py-1 text-muted transition-colors hover:text-ink"
           >
             <span className="grid size-9 place-items-center rounded-full bg-primary-soft/70 text-primary">
               <HelpCircle size={16} />

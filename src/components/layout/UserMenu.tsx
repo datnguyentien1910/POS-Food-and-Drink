@@ -21,7 +21,7 @@ export function UserMenu({ onNavigate }: UserMenuProps) {
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={toggle}
-          className="flex items-center gap-2.5 rounded-full p-1 pr-2 transition-colors hover:bg-bg"
+          className="touch-target flex items-center gap-2.5 rounded-full p-1 pr-2 transition-colors hover:bg-bg"
         >
           <Avatar initials={ACCOUNT.initials} />
           <span className="hidden text-left leading-tight md:block">

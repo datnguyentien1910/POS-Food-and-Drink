@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react'
 import type { PageId } from '../../config'
 import { cx } from '../../lib/cx'
 import { Sidebar } from './Sidebar'
+import { StorageWarning } from './StorageWarning'
 import { TopBar } from './TopBar'
 
 interface AppShellProps {
@@ -26,6 +27,8 @@ export function AppShell({
 
   return (
     <div className="flex min-h-dvh bg-bg text-ink">
+      <StorageWarning />
+
       <aside
         className={cx(
           'sticky top-0 hidden h-dvh shrink-0 transition-[width] duration-200 lg:block',

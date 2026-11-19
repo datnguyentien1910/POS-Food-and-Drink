@@ -15,7 +15,7 @@ export function TableBadge() {
         type="button"
         aria-label={tableId ? `Chọn bàn: ${name}` : 'Chọn bàn'}
         onClick={() => setOpen(true)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-bg px-2.5 text-[11px] font-semibold text-ink transition-colors hover:border-line-strong"
+        className="touch-target inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-bg px-2.5 text-[11px] font-semibold text-ink transition-colors hover:border-line-strong [@media(pointer:coarse)]:h-11"
       >
         {name}
         <ChevronDown size={12} className="text-faint" />

@@ -52,7 +52,7 @@ export function MenuCard({ item, onAdd }: MenuCardProps) {
             aria-label={`Thêm ${item.name}`}
             onClick={handleAdd}
             className={cx(
-              'grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-primary transition-colors duration-150 hover:bg-primary hover:text-white active:scale-90',
+              'touch-target grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-primary transition-colors duration-150 hover:bg-primary hover:text-white active:scale-90 [@media(pointer:coarse)]:size-11',
               pulse && 'animate-pop',
             )}
           >

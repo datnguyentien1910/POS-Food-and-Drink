@@ -122,7 +122,7 @@ export function DraftsModal({ open, onClose }: DraftsModalProps) {
                       size="sm"
                       tone="danger"
                       onClick={() => setPendingDelete(draft)}
-                      className="size-7 rounded-md"
+                      className="size-7 rounded-md [@media(pointer:coarse)]:size-11"
                     >
                       <Trash2 size={13} />
                     </IconButton>

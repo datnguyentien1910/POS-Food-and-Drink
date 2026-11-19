@@ -27,6 +27,7 @@ interface PersistedPOS {
 }
 
 interface POSState extends PersistedPOS {
+  storageError: boolean
   addItem: (menuItemId: string) => void
   increment: (lineId: string) => void
   decrement: (lineId: string) => void
@@ -52,18 +53,93 @@ const emptyOrder = (): Omit<PersistedPOS, 'drafts' | 'history'> => ({
   note: '',
 })
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+const isCartLine = (value: unknown): value is CartLine =>
+  isRecord(value) &&
+  typeof value.lineId === 'string' &&
+  typeof value.menuItemId === 'string' &&
+  isFiniteNumber(value.qty) &&
+  value.qty > 0
+
+const isDiscount = (value: unknown): value is Discount =>
+  isRecord(value) &&
+  (value.type === 'amount' || value.type === 'percent') &&
+  isFiniteNumber(value.value) &&
+  value.value >= 0
+
+const isDraft = (value: unknown): value is Draft =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  (value.tableId === null || typeof value.tableId === 'string') &&
+  Array.isArray(value.items) &&
+  value.items.every(isCartLine) &&
+  isDiscount(value.discount) &&
+  typeof value.note === 'string' &&
+  isFiniteNumber(value.createdAt)
+
+const isOrderLine = (value: unknown): value is OrderLineSnapshot =>
+  isRecord(value) &&
+  typeof value.menuItemId === 'string' &&
+  typeof value.name === 'string' &&
+  isFiniteNumber(value.unitPrice) &&
+  isFiniteNumber(value.qty) &&
+  value.qty > 0
+
+const isOrder = (value: unknown): value is OrderRecord =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.code === 'string' &&
+  (value.tableId === null || typeof value.tableId === 'string') &&
+  typeof value.tableName === 'string' &&
+  Array.isArray(value.items) &&
+  value.items.every(isOrderLine) &&
+  isFiniteNumber(value.subtotal) &&
+  isFiniteNumber(value.discountAmount) &&
+  isFiniteNumber(value.tax) &&
+  isFiniteNumber(value.total) &&
+  (value.method === 'cash' ||
+    value.method === 'transfer' ||
+    value.method === 'card') &&
+  (value.received === undefined || isFiniteNumber(value.received)) &&
+  (value.change === undefined || isFiniteNumber(value.change)) &&
+  typeof value.note === 'string' &&
+  isFiniteNumber(value.createdAt) &&
+  typeof value.cashier === 'string'
+
+const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+  isRecord(value) &&
+  Array.isArray(value.cart) &&
+  value.cart.every(isCartLine) &&
+  (value.tableId === null || typeof value.tableId === 'string') &&
+  isDiscount(value.discount) &&
+  typeof value.note === 'string' &&
+  Array.isArray(value.drafts) &&
+  value.drafts.every(isDraft) &&
+  Array.isArray(value.history) &&
+  value.history.every(isOrder)
+
+let reportStorageFailure: ((failed: boolean) => void) | null = null
+
 const safeStorage: PersistStorage<PersistedPOS> = {
   getItem: (name) => {
     try {
       const raw = globalThis.localStorage?.getItem(name)
       if (!raw) return null
 
-      const parsed = JSON.parse(raw) as {
-        state?: PersistedPOS
-        version?: number
-      }
+      const parsed = JSON.parse(raw) as unknown
 
-      if (!parsed || typeof parsed !== 'object' || !parsed.state) return null
+      if (
+        !isRecord(parsed) ||
+        parsed.version !== 1 ||
+        !isPersistedPOS(parsed.state)
+      ) {
+        return null
+      }
 
       return {
         state: parsed.state,
@@ -76,8 +152,10 @@ const safeStorage: PersistStorage<PersistedPOS> = {
   setItem: (name, value) => {
     try {
       globalThis.localStorage?.setItem(name, JSON.stringify(value))
+      reportStorageFailure?.(false)
     } catch {
-      // Storage can be unavailable (private mode, quota). The app keeps working in memory.
+      // The app keeps working in memory, but the UI must warn that a reload loses data.
+      reportStorageFailure?.(true)
     }
   },
   removeItem: (name) => {
@@ -95,6 +173,7 @@ export const usePOSStore = create<POSState>()(
       ...emptyOrder(),
       drafts: [],
       history: [],
+      storageError: false,
 
       addItem: (menuItemId) => {
         if (!getMenuItem(menuItemId)) return
@@ -263,3 +342,8 @@ export const usePOSStore = create<POSState>()(
     },
   ),
 )
+
+reportStorageFailure = (failed) => {
+  if (usePOSStore.getState().storageError === failed) return
+  usePOSStore.setState({ storageError: failed })
+}

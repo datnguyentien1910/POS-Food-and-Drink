@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MENU_ITEMS } from '../data/menu'
 import { usePOSStore } from './usePOSStore'
 
@@ -16,6 +16,7 @@ function resetStore() {
     note: '',
     drafts: [],
     history: [],
+    storageError: false,
   })
 }
 
@@ -212,5 +213,85 @@ describe('persistence', () => {
     await expect(usePOSStore.persist.rehydrate()).resolves.not.toThrow()
     expect(usePOSStore.getState().cart).toEqual([])
     expect(usePOSStore.getState().history).toEqual([])
+  })
+
+  it('hydrates defaults when persisted state has the wrong shape', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: 'not-an-array',
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: {},
+          history: 'not-an-array',
+        },
+        version: 1,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().drafts).toEqual([])
+    expect(usePOSStore.getState().history).toEqual([])
+  })
+
+  it('hydrates defaults for unknown persisted versions', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+        },
+        version: 99,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().history).toEqual([])
+  })
+
+  it('restores a valid persisted state', async () => {
+    usePOSStore.getState().addItem(chicken.id)
+    const saved = localStorage.getItem(STORAGE_KEY)!
+
+    usePOSStore.setState({
+      cart: [],
+      tableId: null,
+      discount: { type: 'amount', value: 0 },
+      note: '',
+      drafts: [],
+      history: [],
+    })
+    localStorage.setItem(STORAGE_KEY, saved)
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().cart).toHaveLength(1)
+    expect(usePOSStore.getState().cart[0].menuItemId).toBe(chicken.id)
+  })
+
+  it('flags storage failures and clears the flag after a successful write', () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new Error('QuotaExceededError')
+      })
+
+    usePOSStore.getState().addItem(chicken.id)
+    expect(usePOSStore.getState().storageError).toBe(true)
+
+    setItem.mockRestore()
+    usePOSStore.getState().addItem(coffee.id)
+    expect(usePOSStore.getState().storageError).toBe(false)
   })
 })

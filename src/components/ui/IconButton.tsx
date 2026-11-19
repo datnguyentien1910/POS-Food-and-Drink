@@ -30,7 +30,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       className={cx(
-        'grid shrink-0 place-items-center rounded-lg transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40',
+        'touch-target grid shrink-0 place-items-center rounded-lg transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40',
         size === 'sm' ? 'size-8' : 'size-10',
         tones[tone],
         className,

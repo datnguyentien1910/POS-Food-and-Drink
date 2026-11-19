@@ -43,7 +43,7 @@ export function CartRow({
             tone="danger"
             size="sm"
             onClick={onRemove}
-            className="size-7 shrink-0 rounded-md"
+            className="size-7 shrink-0 rounded-md [@media(pointer:coarse)]:size-11"
           >
             <Trash2 size={13} />
           </IconButton>

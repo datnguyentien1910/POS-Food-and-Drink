@@ -21,7 +21,7 @@ export function Stepper({
         size="sm"
         onClick={onDecrement}
         disabled={value <= min}
-        className="size-7 rounded-md"
+        className="size-7 rounded-md [@media(pointer:coarse)]:size-11"
       >
         <Minus size={13} strokeWidth={2.4} />
       </IconButton>
@@ -35,7 +35,7 @@ export function Stepper({
         label="Tăng số lượng"
         size="sm"
         onClick={onIncrement}
-        className="size-7 rounded-md"
+        className="size-7 rounded-md [@media(pointer:coarse)]:size-11"
       >
         <Plus size={13} strokeWidth={2.4} />
       </IconButton>

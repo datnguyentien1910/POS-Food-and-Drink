@@ -68,7 +68,7 @@ export function NotificationMenu({ onNavigate }: NotificationMenuProps) {
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={toggle}
-          className="relative grid size-10 place-items-center rounded-full border border-line bg-surface text-muted transition-colors hover:bg-bg hover:text-ink"
+          className="touch-target relative grid size-10 place-items-center rounded-full border border-line bg-surface text-muted transition-colors hover:bg-bg hover:text-ink"
         >
           <Bell size={17} />
           {unreadCount > 0 ? (
