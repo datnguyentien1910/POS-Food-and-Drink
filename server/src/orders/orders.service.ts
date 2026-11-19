@@ -2,12 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { AppException } from '../common/errors/app.exception.js';
+import { Paginated } from '../common/types/api.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { computeChange, computeOrderTotals } from './money.js';
 import type { CreateOrderDto } from './dto/create-order.dto.js';
+import type { OrdersQueryDto } from './dto/orders-query.dto.js';
 import { IdempotencyService } from './idempotency.service.js';
 import { OrderCodeService } from './order-code.service.js';
 import { toOrderResponse, type OrderResponse } from './order-response.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 export interface RequestMeta {
   ip?: string;
@@ -17,10 +20,12 @@ export interface RequestMeta {
 const TAKEAWAY_NAME = 'Mang đi';
 const ENDPOINT = 'POST /orders';
 const INVALID_ITEM = 'Món không hợp lệ';
+const ORDER_NOT_FOUND = 'Không tìm thấy đơn';
 
 @Injectable()
 export class OrdersService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly orderCode: OrderCodeService,
     private readonly idempotency: IdempotencyService,
@@ -39,6 +44,120 @@ export class OrdersService {
       payload: dto,
       statusCode: 201,
       handler: (tx) => this.createInTransaction(tx, dto, actor, meta),
+    });
+  }
+
+  async list(
+    restaurantId: string,
+    query: OrdersQueryDto,
+  ): Promise<Paginated<OrderResponse>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const where: Prisma.OrderWhereInput = { restaurantId };
+    if (query.status) {
+      where.status = query.status;
+    }
+    if (query.tableId) {
+      where.tableId = query.tableId;
+    }
+    if (query.from || query.to) {
+      where.createdAt = {
+        ...(query.from ? { gte: new Date(query.from) } : {}),
+        ...(query.to ? { lt: new Date(query.to) } : {}),
+      };
+    }
+    if (query.q) {
+      where.OR = [
+        { code: { contains: query.q, mode: 'insensitive' } },
+        { tableName: { contains: query.q, mode: 'insensitive' } },
+        { cashierName: { contains: query.q, mode: 'insensitive' } },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: { items: true, payment: true },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return new Paginated(rows.map(toOrderResponse), {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    });
+  }
+
+  async detail(restaurantId: string, id: string): Promise<OrderResponse> {
+    const order = await this.prisma.order.findFirst({
+      where: { id, restaurantId },
+      include: { items: true, payment: true },
+    });
+    if (!order) {
+      throw new AppException(404, 'NOT_FOUND', ORDER_NOT_FOUND);
+    }
+    return toOrderResponse(order);
+  }
+
+  async voidOrder(
+    actor: AuthenticatedUser,
+    id: string,
+    reason: string,
+    meta: RequestMeta,
+  ): Promise<OrderResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      // Conditional update wins the race: only the first void flips the row.
+      const updated = await tx.order.updateMany({
+        where: { id, restaurantId: actor.restaurantId, status: 'COMPLETED' },
+        data: { status: 'VOIDED', voidedAt: new Date(), voidReason: reason },
+      });
+
+      if (updated.count === 0) {
+        const existing = await tx.order.findFirst({
+          where: { id, restaurantId: actor.restaurantId },
+        });
+        if (!existing) {
+          throw new AppException(404, 'NOT_FOUND', ORDER_NOT_FOUND);
+        }
+        throw new AppException(
+          409,
+          'ORDER_ALREADY_VOIDED',
+          'Đơn đã được huỷ trước đó',
+        );
+      }
+
+      await tx.payment.updateMany({
+        where: { orderId: id, status: 'COMPLETED' },
+        data: { status: 'VOIDED' },
+      });
+
+      const order = await tx.order.findUniqueOrThrow({
+        where: { id },
+        include: { items: true, payment: true },
+      });
+
+      await this.audit.record(
+        {
+          restaurantId: actor.restaurantId,
+          actorId: actor.id,
+          action: 'ORDER_VOIDED',
+          entity: 'Order',
+          entityId: id,
+          before: { status: 'COMPLETED' },
+          after: { status: 'VOIDED' },
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+
+      return toOrderResponse(order);
     });
   }
 
