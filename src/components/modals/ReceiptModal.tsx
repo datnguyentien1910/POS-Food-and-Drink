@@ -1,4 +1,5 @@
 import { Printer } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
 import { Receipt } from '../receipt/Receipt'
@@ -37,9 +38,12 @@ export function ReceiptModal({ order, open, onClose }: ReceiptModalProps) {
         </div>
       </Modal>
 
-      <div className="print-area hidden print:block">
-        <Receipt order={order} />
-      </div>
+      {createPortal(
+        <div className="print-area hidden print:block">
+          <Receipt order={order} />
+        </div>,
+        document.body,
+      )}
     </>
   )
 }

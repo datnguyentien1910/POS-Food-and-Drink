@@ -59,7 +59,7 @@ export function MenuPanel({ onAdd }: MenuPanelProps) {
   }
 
   return (
-    <section className="card flex min-w-0 flex-col p-4 xl:p-5">
+    <section className="card flex min-w-0 flex-col p-4 lg:h-full lg:min-h-0 lg:overflow-hidden xl:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg leading-tight font-bold tracking-tight text-ink">
@@ -177,7 +177,7 @@ export function MenuPanel({ onAdd }: MenuPanelProps) {
         </div>
       </div>
 
-      <div className="mt-4 flex-1">
+      <div className="thin-scrollbar mt-4 min-h-0 flex-1 overscroll-contain lg:overflow-y-auto lg:pr-1">
         {result.items.length > 0 ? (
           <MenuGrid items={result.items} onAdd={onAdd} />
         ) : (

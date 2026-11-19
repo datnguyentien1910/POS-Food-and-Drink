@@ -11,7 +11,7 @@ import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { IconButton } from '../ui/IconButton'
 import { Modal } from '../ui/Modal'
-import { useToast } from '../ui/Toast'
+import { useToast } from '../ui/toast-context'
 import { ConfirmModal } from './ConfirmModal'
 
 interface DraftsModalProps {

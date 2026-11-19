@@ -23,7 +23,7 @@ import { formatVND } from '../../lib/format'
 import { searchEverything } from '../../lib/global-search'
 import { usePOSStore } from '../../store/usePOSStore'
 import type { OrderRecord } from '../../types'
-import { useToast } from '../ui/Toast'
+import { useToast } from '../ui/toast-context'
 
 interface GlobalSearchProps {
   onNavigate: (page: PageId) => void

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { formatVND } from '../../lib/format'
 import { usePOSStore } from '../../store/usePOSStore'
 import { Button } from '../ui/Button'
@@ -19,12 +19,6 @@ export function DiscountModal({ open, onClose, subtotal }: DiscountModalProps) {
   const [value, setValue] = useState(
     discount.value > 0 ? String(discount.value) : '',
   )
-
-  useEffect(() => {
-    if (!open) return
-    setType(discount.type)
-    setValue(discount.value > 0 ? String(discount.value) : '')
-  }, [open, discount])
 
   const numericValue = Math.max(0, Number(value) || 0)
   const preview =

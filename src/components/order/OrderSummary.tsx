@@ -64,11 +64,13 @@ export function OrderSummary({ totals }: OrderSummaryProps) {
         </span>
       </div>
 
-      <DiscountModal
-        open={discountOpen}
-        onClose={() => setDiscountOpen(false)}
-        subtotal={totals.subtotal}
-      />
+      {discountOpen ? (
+        <DiscountModal
+          open
+          onClose={() => setDiscountOpen(false)}
+          subtotal={totals.subtotal}
+        />
+      ) : null}
     </section>
   )
 }

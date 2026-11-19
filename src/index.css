@@ -24,6 +24,7 @@
     'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system,
     'Segoe UI', sans-serif;
 
+  --breakpoint-3xl: 90rem;
   --radius-card: 16px;
   --shadow-card:
     0 1px 2px rgba(28, 21, 20, 0.04), 0 10px 30px -24px rgba(28, 21, 20, 0.28);
@@ -208,6 +209,12 @@
   animation: drawer-in-left 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+@media (max-height: 740px) {
+  .sidebar-tip {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -224,19 +231,13 @@
     background: #fff;
   }
 
-  body * {
-    visibility: hidden;
-  }
-
-  .print-area,
-  .print-area * {
-    visibility: visible;
+  body:has(.print-area) > *:not(.print-area) {
+    display: none !important;
   }
 
   .print-area {
-    position: absolute;
-    inset: 0 auto auto 0;
-    width: 80mm;
+    display: block;
+    width: 72mm;
     margin: 0;
     padding: 0;
     color: #000;
@@ -245,7 +246,12 @@
     border: 0;
   }
 
+  .print-area article {
+    width: 100%;
+  }
+
   @page {
+    size: 80mm auto;
     margin: 4mm;
   }
 }

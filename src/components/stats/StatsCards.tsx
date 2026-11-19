@@ -6,7 +6,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { formatVND } from '../../lib/format'
 import type { OrderRecord } from '../../types'
 
@@ -24,6 +24,7 @@ interface CardShellProps {
   value: string
   note: ReactNode
   noteClassName?: string
+  className?: string
 }
 
 function CardShell({
@@ -33,21 +34,28 @@ function CardShell({
   value,
   note,
   noteClassName,
+  className,
 }: CardShellProps) {
   return (
-    <div className="card flex flex-col gap-3 p-4 xl:p-5">
-      <div className="flex items-center gap-3">
+    <div
+      className={`card flex flex-col gap-2 p-3.5 xl:p-4 ${className ?? ''}`}
+    >
+      <div className="flex items-center gap-2.5">
         <span
-          className={`grid size-10 shrink-0 place-items-center rounded-xl ${iconClassName}`}
+          className={`grid size-9 shrink-0 place-items-center rounded-xl ${iconClassName}`}
         >
           {icon}
         </span>
-        <p className="text-xs font-semibold text-muted">{label}</p>
+        <p className="text-[11px] font-semibold text-muted">{label}</p>
       </div>
-      <p className="text-[22px] leading-none font-bold tracking-tight tabular-nums text-ink">
+      <p className="text-xl leading-none font-bold tracking-tight tabular-nums text-ink">
         {value}
       </p>
-      <div className={`text-[11px] font-medium ${noteClassName ?? 'text-muted'}`}>
+      <div
+        className={`text-[10.5px] leading-snug font-medium ${
+          noteClassName ?? 'text-muted'
+        }`}
+      >
         {note}
       </div>
     </div>
@@ -55,7 +63,7 @@ function CardShell({
 }
 
 export function StatsCards({ history }: StatsCardsProps) {
-  const now = new Date()
+  const [now] = useState(() => new Date())
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
 
@@ -80,7 +88,7 @@ export function StatsCards({ history }: StatsCardsProps) {
   return (
     <section
       aria-label="Số liệu hôm nay"
-      className="grid grid-cols-2 gap-3 xl:grid-cols-4 xl:gap-4"
+      className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:gap-4"
     >
       <CardShell
         icon={<Banknote size={18} />}
@@ -106,7 +114,7 @@ export function StatsCards({ history }: StatsCardsProps) {
               <span className="text-muted">so với hôm qua</span>
             </span>
           ) : (
-            'Tính từ hoá đơn đã thanh toán trên máy này'
+            'Từ hoá đơn trên máy này'
           )
         }
       />
@@ -127,6 +135,7 @@ export function StatsCards({ history }: StatsCardsProps) {
         label="Khách hàng"
         value="—"
         note="Sẽ có khi nối backend"
+        className="max-lg:hidden"
       />
       <CardShell
         icon={<CreditCard size={18} />}
@@ -134,6 +143,7 @@ export function StatsCards({ history }: StatsCardsProps) {
         label="Công nợ"
         value="—"
         note="Sẽ có khi nối backend"
+        className="max-lg:hidden"
       />
     </section>
   )

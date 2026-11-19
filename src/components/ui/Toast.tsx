@@ -1,29 +1,20 @@
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react'
 import {
-  createContext,
   type ReactNode,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
 } from 'react'
 import { cx } from '../../lib/cx'
 import { makeId } from '../../lib/id'
-
-type ToastTone = 'success' | 'error' | 'info'
+import { ToastContext, type ToastTone } from './toast-context'
 
 interface ToastItem {
   id: string
   message: string
   tone: ToastTone
 }
-
-interface ToastContextValue {
-  push: (message: string, tone?: ToastTone, duration?: number) => void
-}
-
-const ToastContext = createContext<ToastContextValue | null>(null)
 
 const toneStyles: Record<ToastTone, string> = {
   success: 'border-positive/20 bg-surface text-ink',
@@ -103,12 +94,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </div>
     </ToastContext.Provider>
   )
-}
-
-export function useToast(): ToastContextValue {
-  const context = useContext(ToastContext)
-  if (!context) {
-    throw new Error('useToast phải được dùng bên trong ToastProvider')
-  }
-  return context
 }

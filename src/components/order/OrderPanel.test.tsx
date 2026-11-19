@@ -41,6 +41,15 @@ describe('OrderPanel', () => {
     expect(screen.getByRole('button', { name: 'Lưu tạm' })).toBeDisabled()
   })
 
+  it('opens the drafts list from the panel header', async () => {
+    const user = userEvent.setup()
+    const { onOpenDrafts } = renderPanel()
+
+    await user.click(screen.getByRole('button', { name: 'Đơn nháp' }))
+
+    expect(onOpenDrafts).toHaveBeenCalledTimes(1)
+  })
+
   it('renders cart lines and updates the quantity', async () => {
     const user = userEvent.setup()
     usePOSStore.getState().addItem('ga-nuong')

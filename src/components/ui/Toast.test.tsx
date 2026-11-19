@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ToastProvider, useToast } from './Toast'
+import { ToastProvider } from './Toast'
+import { useToast } from './toast-context'
 
 function Trigger({ message = 'Đã thêm món' }: { message?: string }) {
   const { push } = useToast()

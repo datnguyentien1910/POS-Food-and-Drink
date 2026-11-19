@@ -1,7 +1,7 @@
 import { ChevronDown, LogOut, Settings, UserRound } from 'lucide-react'
 import { ACCOUNT, type PageId } from '../../config'
 import { Popover } from '../ui/Popover'
-import { useToast } from '../ui/Toast'
+import { useToast } from '../ui/toast-context'
 import { Avatar } from './Avatar'
 
 interface UserMenuProps {

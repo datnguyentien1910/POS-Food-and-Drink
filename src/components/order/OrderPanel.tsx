@@ -18,7 +18,7 @@ import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { IconButton } from '../ui/IconButton'
 import { Popover } from '../ui/Popover'
-import { useToast } from '../ui/Toast'
+import { useToast } from '../ui/toast-context'
 import { CartRow } from './CartRow'
 import { NoteEditor } from './NoteEditor'
 import { OrderSummary } from './OrderSummary'
@@ -38,6 +38,7 @@ export function OrderPanel({
   className,
 }: OrderPanelProps) {
   const cart = usePOSStore((state) => state.cart)
+  const drafts = usePOSStore((state) => state.drafts)
   const discount = usePOSStore((state) => state.discount)
   const increment = usePOSStore((state) => state.increment)
   const decrement = usePOSStore((state) => state.decrement)
@@ -90,6 +91,20 @@ export function OrderPanel({
 
         <div className="flex shrink-0 items-center gap-1">
           <TableBadge />
+          <button
+            type="button"
+            aria-label="Đơn nháp"
+            title="Đơn nháp"
+            onClick={onOpenDrafts}
+            className="relative grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-bg hover:text-ink"
+          >
+            <ClipboardList size={16} />
+            {drafts.length > 0 ? (
+              <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[9px] font-bold text-white tabular-nums">
+                {drafts.length}
+              </span>
+            ) : null}
+          </button>
           <Popover
             panelClassName="w-[210px]"
             trigger={({ toggle, open }) => (
@@ -139,7 +154,7 @@ export function OrderPanel({
         </div>
       </header>
 
-      <div className="thin-scrollbar max-h-[min(42vh,400px)] min-h-[132px] flex-1 overflow-y-auto px-4">
+      <div className="thin-scrollbar min-h-[132px] flex-1 overflow-y-auto overscroll-contain px-4 lg:min-h-0">
         {isEmpty ? (
           <EmptyState
             icon={<ShoppingBasket size={22} />}
@@ -162,7 +177,7 @@ export function OrderPanel({
         )}
       </div>
 
-      <div className="border-t border-line px-4 py-3.5">
+      <div className="shrink-0 border-t border-line px-4 py-3.5">
         {!isEmpty ? (
           <div className="mb-3">
             <NoteEditor />
@@ -171,9 +186,8 @@ export function OrderPanel({
 
         <OrderSummary totals={totals} />
 
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 flex items-stretch gap-2">
           <Button
-            fullWidth
             disabled={isEmpty}
             onClick={onCharge}
             aria-label={
@@ -181,7 +195,7 @@ export function OrderPanel({
                 ? 'Thanh toán'
                 : `Thanh toán ${formatVND(totals.total)}`
             }
-            className="justify-between"
+            className="min-w-0 flex-1 justify-between"
           >
             <span className="flex items-center gap-2">
               <span>Thanh toán</span>
@@ -191,12 +205,13 @@ export function OrderPanel({
           </Button>
           <Button
             variant="secondary"
-            fullWidth
             disabled={isEmpty}
             onClick={handleSaveDraft}
+            aria-label="Lưu tạm"
+            title="Lưu tạm"
+            className="w-11 shrink-0 px-0"
           >
-            <Bookmark size={15} />
-            Lưu tạm
+            <Bookmark size={16} />
           </Button>
         </div>
       </div>

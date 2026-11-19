@@ -25,7 +25,7 @@ export function MenuCard({ item, onAdd }: MenuCardProps) {
         <img
           src={item.image}
           alt={item.name}
-          loading="lazy"
+          decoding="async"
           className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
         />
         {item.popular ? (

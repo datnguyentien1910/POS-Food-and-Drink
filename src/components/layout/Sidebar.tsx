@@ -48,7 +48,7 @@ export function Sidebar({
       <nav
         aria-label="Điều hướng chính"
         className={cx(
-          'thin-scrollbar mt-7 flex flex-1 flex-col gap-1 overflow-y-auto',
+          'thin-scrollbar mt-6 flex flex-1 flex-col gap-0.5 overflow-y-auto',
           collapsed && 'items-stretch',
         )}
       >
@@ -64,7 +64,7 @@ export function Sidebar({
               aria-current={isActive ? 'page' : undefined}
               onClick={() => onNavigate(page.id)}
               className={cx(
-                'flex items-center gap-3 rounded-xl py-2.5 text-left text-[13px] font-semibold transition-colors duration-150',
+                'flex items-center gap-3 rounded-xl py-2 text-left text-[13px] font-semibold transition-colors duration-150',
                 collapsed ? 'justify-center px-2' : 'px-3.5',
                 isActive
                   ? 'bg-primary-soft text-primary shadow-[inset_0_0_0_1px_rgba(36,30,178,0.06)]'
@@ -86,8 +86,8 @@ export function Sidebar({
       </nav>
 
       {!collapsed ? (
-        <div className="mt-5 space-y-4">
-          <div className="rounded-2xl bg-linear-to-br from-primary-soft to-[#F7F4FF] p-4">
+        <div className="mt-4 space-y-3">
+          <div className="sidebar-tip rounded-2xl bg-linear-to-br from-primary-soft to-[#F7F4FF] p-4">
             <div className="flex items-center gap-2 text-primary">
               <Sparkles size={15} />
               <p className="text-xs font-bold">Mẹo nhanh</p>

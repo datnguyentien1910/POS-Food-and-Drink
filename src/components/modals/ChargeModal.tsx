@@ -15,7 +15,7 @@ import { usePOSStore } from '../../store/usePOSStore'
 import type { OrderRecord, PaymentMethod } from '../../types'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
-import { useToast } from '../ui/Toast'
+import { useToast } from '../ui/toast-context'
 
 interface ChargeModalProps {
   open: boolean

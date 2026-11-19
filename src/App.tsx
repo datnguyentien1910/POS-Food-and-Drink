@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AppShell } from './components/layout/AppShell'
 import { ChargeModal } from './components/modals/ChargeModal'
 import { ReceiptModal } from './components/modals/ReceiptModal'
@@ -12,9 +12,25 @@ import type { OrderRecord } from './types'
 
 function AppContent() {
   const [activePage, setActivePage] = useState<PageId>('pos')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => window.innerWidth >= 1280,
+  )
   const [chargeOpen, setChargeOpen] = useState(false)
   const [receiptOrder, setReceiptOrder] = useState<OrderRecord | null>(null)
+
+  useEffect(() => {
+    let wasDesktop = window.innerWidth >= 1280
+
+    const handleResize = () => {
+      const isDesktop = window.innerWidth >= 1280
+      if (isDesktop === wasDesktop) return
+      wasDesktop = isDesktop
+      setSidebarOpen(isDesktop)
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   return (
     <AppShell

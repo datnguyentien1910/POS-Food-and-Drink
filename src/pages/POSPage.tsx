@@ -39,12 +39,14 @@ export function POSPage({ onCharge }: POSPageProps) {
   const itemCount = cart.reduce((sum, line) => sum + line.qty, 0)
 
   return (
-    <div className="flex flex-col gap-4 pb-24 lg:pb-0">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-col gap-4 pb-24 lg:h-[calc(100dvh-128px)] lg:min-h-0 lg:gap-3 lg:overflow-hidden lg:pb-0">
+      <h1 className="sr-only">Bán hàng</h1>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 lg:hidden">
         <div>
-          <h1 className="text-xl leading-tight font-bold tracking-tight text-ink">
+          <p className="text-xl leading-tight font-bold tracking-tight text-ink">
             Bán hàng
-          </h1>
+          </p>
           <p className="mt-0.5 text-xs text-muted">
             Chọn món, lưu nháp và thanh toán tại quầy.
           </p>
@@ -64,13 +66,14 @@ export function POSPage({ onCharge }: POSPageProps) {
 
       <StatsCards history={history} />
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid items-start gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-stretch xl:grid-cols-[minmax(0,1fr)_360px]">
         <MenuPanel onAdd={addItem} />
 
-        <aside className="sticky top-[96px] hidden lg:block">
+        <aside className="hidden min-h-0 lg:block">
           <OrderPanel
             onCharge={onCharge}
             onOpenDrafts={() => setDraftsOpen(true)}
+            className="h-full"
           />
         </aside>
       </div>
@@ -101,6 +104,7 @@ export function POSPage({ onCharge }: POSPageProps) {
               onCharge={onCharge}
               onOpenDrafts={() => setDraftsOpen(true)}
               onClose={() => setCartOpen(false)}
+              className="h-full"
             />
           </div>
         </div>
