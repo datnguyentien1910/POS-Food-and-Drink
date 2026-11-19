@@ -367,7 +367,7 @@ src/
   test/setup.ts         jest-dom, cleanup, dialog polyfill, viewport 1440×900
 docs/
   superpowers/specs/    thiết kế đã duyệt
-  superpowers/plans/    plan triển khai 11 task
+  superpowers/plans/    plan frontend (11 task) + backend (9 task)
   screenshots/          ảnh desktop/1024/mobile
 public/                 favicon, icon PWA
 ```
@@ -590,18 +590,19 @@ npm run preview    # chạy bản build/PWA
 
 **Done khi:** POS vẫn 113 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
 
-### 8.3 Phase 1 — Nền tảng backend (3–5 ngày)
+### 8.3 Phase 1 — Nền tảng backend (backend-only, ~2,5 tuần)
 
-**Mục tiêu:** có nguồn dữ liệu chung, auth, API contract.
+**Mục tiêu:** backend chạy local, sẵn sàng để Phase 2 nối frontend; **không thay đổi frontend** trong phase này.
 
-- Chốt database schema cho: restaurant, staff, menu, tables, orders, payments.
-- API: auth, menu, orders, payments, tables.
-- Đăng nhập + role cơ bản (owner/manager/cashier).
-- Đồng bộ đơn local → server; idempotency key; retry/outbox.
-- Migration dữ liệu localStorage một lần (export/import).
-- Giữ POS offline: local queue + sync khi có mạng.
+- Stack: NestJS 12.5 + PostgreSQL 17 (Docker) + Prisma 7.10.1 + session auth.
+- Schema: restaurant, user/membership, device, category/menu item, table, order/order item/payment, audit, idempotency, order counter.
+- Auth: email/password + PIN 4 số gắn thiết bị; role Owner/Manager/Cashier.
+- API: auth, devices, menu/tables read-only, orders/payments, void, audit, health; prefix `/api/v1`, Swagger `/api/docs`.
+- Chưa làm: nối frontend, offline sync, CRUD menu/nhân viên, trạng thái bàn, báo cáo, deploy VPS.
 
-**Done khi:** hai thiết bị thấy cùng menu/bàn/đơn; POS vẫn bán được khi mất mạng.
+**Tài liệu:** [Spec](docs/superpowers/specs/2026-11-19-backend-foundation-spec.md) · [Plan](docs/superpowers/plans/2026-11-19-backend-foundation-plan.md)
+
+**Done khi:** backend chạy sạch bằng Docker + seed; auth/order/void/idempotency pass; CI xanh; frontend vẫn 113/113; `src/` không đổi.
 
 ### 8.4 Phase 2 — Bàn (3–5 ngày)
 
@@ -673,7 +674,7 @@ npm run preview    # chạy bản build/PWA
 ```text
 Phase 0  Gia cố nền tảng
    │
-Phase 1  Backend + auth + sync
+Phase 1  Backend + auth (backend-only)
    │
    ├── Phase 2  Bàn
    │      │
@@ -961,7 +962,9 @@ npm run preview
 
 - [README](README.md) — chạy, build, deploy, cấu hình.
 - [Thiết kế frontend](docs/superpowers/specs/2026-11-18-restaurant-pos-frontend-design.md)
-- [Plan triển khai](docs/superpowers/plans/2026-11-18-restaurant-pos-frontend.md)
+- [Plan triển khai frontend](docs/superpowers/plans/2026-11-18-restaurant-pos-frontend.md)
+- [Spec backend Phase 1](docs/superpowers/specs/2026-11-19-backend-foundation-spec.md)
+- [Plan backend Phase 1](docs/superpowers/plans/2026-11-19-backend-foundation-plan.md)
 - [Ảnh desktop](docs/screenshots/pos-desktop.jpg)
 - [Ảnh 1024×768](docs/screenshots/pos-1024.jpg)
 - [Ảnh mobile](docs/screenshots/pos-mobile.jpg)
