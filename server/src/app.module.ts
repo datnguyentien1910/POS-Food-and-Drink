@@ -9,6 +9,7 @@ import { SessionAuthGuard } from './common/guards/session-auth.guard.js';
 import { validateEnv } from './config/env.js';
 import { HealthModule } from './health/health.module.js';
 import { MenuModule } from './menu/menu.module.js';
+import { OrdersModule } from './orders/orders.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { TablesModule } from './tables/tables.module.js';
 
@@ -24,6 +25,7 @@ import { TablesModule } from './tables/tables.module.js';
     HealthModule,
     MenuModule,
     TablesModule,
+    OrdersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: SessionAuthGuard },
