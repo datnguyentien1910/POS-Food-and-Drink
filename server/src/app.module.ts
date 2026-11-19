@@ -8,7 +8,9 @@ import { RolesGuard } from './common/guards/roles.guard.js';
 import { SessionAuthGuard } from './common/guards/session-auth.guard.js';
 import { validateEnv } from './config/env.js';
 import { HealthModule } from './health/health.module.js';
+import { MenuModule } from './menu/menu.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { TablesModule } from './tables/tables.module.js';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { PrismaModule } from './prisma/prisma.module.js';
     AuditModule,
     AuthModule,
     HealthModule,
+    MenuModule,
+    TablesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: SessionAuthGuard },
