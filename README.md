@@ -6,6 +6,8 @@ Frontend POS cho nhà hàng/quán ăn: gọi món, giỏ hàng, giảm giá, tha
 
 > **Tài liệu gốc cho mọi fork:** [PROJECT.md](PROJECT.md) — báo cáo dự án, kiến trúc, quyết định đã chốt, lộ trình Bàn/Đặt bàn/Nhân viên và quy trình lập kế hoạch. Đọc file này trước khi phát triển module mới.
 
+> **Backend (Phase 1):** API NestJS + PostgreSQL chạy local, sẵn sàng cho Phase 2 nối frontend — xem [`server/README.md`](server/README.md).
+
 ![POS desktop](docs/screenshots/pos-desktop.jpg)
 
 ## Tính năng

@@ -1,132 +1,175 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# RestoDash POS — Backend (Phase 1)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API backend cho RestoDash POS: NestJS 12 + PostgreSQL 17 + Prisma 7. Phase 1 là **backend-only**; frontend v1 (`/src`) không đổi và chưa nối API.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+- Tài liệu thiết kế: [spec](../docs/superpowers/specs/2026-11-19-backend-foundation-spec.md) · [plan](../docs/superpowers/plans/2026-11-19-backend-foundation-plan.md).
+- Kiến trúc tổng thể, ADR, lộ trình: [`../PROJECT.md`](../PROJECT.md).
 
-## Description
+## Yêu cầu
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Node.js `>=24` (đã kiểm thử trên Node 26 local và Node 24 trên CI).
+- Docker + Docker Compose (chạy PostgreSQL 17).
+- npm.
 
-## Project setup
+## Cài đặt
 
 ```bash
-$ npm install
+cd server
+npm install
+cp .env.example .env   # rồi sửa mật khẩu/secret bên dưới
 ```
 
-## Compile and run the project
+Cài Docker nếu máy chưa có:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+# Ubuntu/Debian
+sudo apt-get install -y docker.io docker-compose-plugin
+sudo usermod -aG docker "$USER"   # đăng nhập lại để nhóm có hiệu lực
 ```
 
-## Run tests
+## Biến môi trường
+
+| Biến | Ý nghĩa |
+| --- | --- |
+| `NODE_ENV` | `development` / `test` / `production` |
+| `PORT` | Cổng HTTP (mặc định `3001`) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Thông tin container Postgres |
+| `DATABASE_URL` | Chuỗi kết nối DB chính |
+| `TEST_DATABASE_URL` | Chuỗi kết nối DB cho e2e (`restodash_test`) |
+| `SESSION_SECRET` | Bí mật ký session (>= 32 ký tự) |
+| `PIN_PEPPER` | Pepper băm PIN (>= 32 ký tự) |
+| `CORS_ORIGINS` | Danh sách origin cho phép, phân tách bằng dấu phẩy |
+| `SWAGGER_ENABLED` | `true` để mở Swagger UI ở `/api/docs` |
+
+Không commit `.env`; `.gitignore` đã bỏ qua `.env`, `backups/` và client Prisma sinh tự động.
+
+## Chạy nhanh
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+make up             # docker compose up -d db
+make migrate        # npx prisma migrate deploy
+make seed           # nạp dữ liệu mẫu (idempotent)
+npm run start:dev   # http://localhost:3001/api/v1
 ```
 
-## Deployment
+- Health: `GET http://localhost:3001/api/v1/health` (kỳ vọng `db: up`).
+- Swagger: `http://localhost:3001/api/docs`.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Không dùng `make`, chạy trực tiếp:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run db:deploy   # prisma migrate deploy
+npm run db:seed     # prisma db seed
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Tài khoản mẫu (chỉ dùng local)
 
-## Observability
+Seed tạo 3 tài khoản. **Chạy lại seed sẽ đặt lại mật khẩu và PIN về giá trị dưới đây**; không dùng cho production.
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+| Email | Mật khẩu | PIN | Role |
+| --- | --- | --- | --- |
+| `owner@restodash.local` | `Owner@12345` | `1234` | OWNER |
+| `manager@restodash.local` | `Manager@12345` | `2345` | MANAGER |
+| `cashier@restodash.local` | `Cashier@12345` | `3456` | CASHIER |
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+Seed cũng tạo 6 nhóm món (16 món) và 12 bàn.
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+## API
 
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
+Prefix `/api/v1`, Swagger mở ở `/api/docs`. Response thành công: `{ "data": ..., "meta"?: ... }`; lỗi: `{ "error": { "code", "message", "details"? } }`. Xác thực qua cookie phiên `restodash.sid`.
+
+| Method | Đường dẫn | Quyền | Mô tả |
+| --- | --- | --- | --- |
+| `GET` | `/health` | công khai | Trạng thái app + DB |
+| `POST` | `/auth/login` | công khai | Đăng nhập email/mật khẩu |
+| `GET` | `/auth/me` | phiên | Thông tin phiên hiện tại |
+| `GET` | `/auth/staff` | công khai + thiết bị | Nhân viên có PIN trên thiết bị này |
+| `POST` | `/auth/pin` | công khai + thiết bị | Đăng nhập bằng PIN |
+| `POST` | `/auth/pin/change` | phiên | Đổi PIN của chính mình |
+| `POST` | `/auth/logout` | phiên | Đăng xuất |
+| `POST` | `/devices` | OWNER, MANAGER | Đăng ký thiết bị bán hàng |
+| `GET` | `/devices` | phiên | Danh sách thiết bị của quán |
+| `DELETE` | `/devices/:id` | OWNER, MANAGER | Thu hồi thiết bị |
+| `GET` | `/menu` | phiên | Thực đơn đầy đủ theo nhóm |
+| `GET` | `/menu/categories` | phiên | Danh sách nhóm món |
+| `GET` | `/tables` | phiên | Danh sách bàn |
+| `POST` | `/orders` | OWNER, MANAGER, CASHIER | Tạo đơn kèm thanh toán (cần `Idempotency-Key`) |
+| `GET` | `/orders` | OWNER, MANAGER, CASHIER | Danh sách đơn (lọc + phân trang) |
+| `GET` | `/orders/:id` | OWNER, MANAGER, CASHIER | Chi tiết một đơn |
+| `POST` | `/orders/:id/void` | OWNER, MANAGER | Huỷ đơn |
+| `GET` | `/audit` | OWNER, MANAGER | Nhật ký hoạt động (lọc + phân trang) |
+
+Mẫu request: [`docs/api.http`](docs/api.http).
+
+## Luồng xác thực
+
+1. **Email/mật khẩu**: `POST /auth/login` → phiên **30 ngày**, cookie `restodash.sid` (`HttpOnly`, rolling). Giới hạn 5 lần/phút/IP.
+2. **Đăng ký thiết bị**: OWNER/MANAGER (chỉ phiên mật khẩu) gọi `POST /devices` → nhận cookie `restodash.device`.
+3. **PIN gắn thiết bị**: trên thiết bị đã đăng ký, `GET /auth/staff` để chọn nhân viên rồi `POST /auth/pin`. Phiên PIN **tuyệt đối 12 giờ**.
+4. **Phân quyền**: OWNER/MANAGER/CASHIER; endpoint ghi/thu hồi/huỷ giới hạn theo role.
+
+PIN **không bị khoá** khi nhập sai (quyết định D-12, rủi ro đã chấp nhận) và không áp rate limit.
+
+## Quy tắc tiền
+
+- Tiền là **số nguyên VND**; không dùng số thập phân.
+- Thuế VAT 8% (`taxRateBps = 800`), tính **sau** giảm giá.
+- Đơn lưu **snapshot** tên/giá món tại thời điểm bán; sửa menu không làm sai lịch sử.
+- Tiền thối (tiền mặt) không được âm khi thu thiếu.
+
+## Idempotency và huỷ đơn
+
+- `POST /orders` **bắt buộc** header `Idempotency-Key` (1..100 ký tự). Gửi lại cùng key + cùng payload trả về đơn cũ; cùng key + payload khác trả `409`.
+- Mã đơn dạng `HD-YYYYMMDD-NNN`, sinh theo ngày nghiệp vụ qua `OrderCounter`.
+- `POST /orders/:id/void` chỉ OWNER/MANAGER. Đơn đã huỷ không thể huỷ lại (an toàn khi chạy song song) và mọi thao tác đều ghi audit.
+
+## Sao lưu và phục hồi
 
 ```bash
-$ npx @nestjs/observe link
+make backup  DB=restodash FILE=backups/restodash.dump
+make restore DB=restodash FILE=backups/restodash.dump
+# hoặc trực tiếp:
+./scripts/backup.sh restodash backups/restodash.dump
+./scripts/restore.sh restodash backups/restodash.dump
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+- `backup.sh` dùng `pg_dump -Fc`; `restore.sh` dùng `pg_restore --clean --if-exists`.
+- Cả hai chạy qua `docker compose exec -T db`, đọc thông tin đăng nhập từ biến môi trường của container, **không hardcode mật khẩu**.
+- Thư mục `backups/` đã được `.gitignore` bỏ qua.
 
-Or do it by hand:
+Khôi phục vào DB đích (ví dụ tạo bản kiểm thử trước khi đè dữ liệu thật):
 
 ```bash
-$ npm install @nestjs/observe
+docker compose exec -T db createdb -U "$POSTGRES_USER" restodash_restore_test
+./scripts/restore.sh restodash_restore_test backups/restodash.dump
+docker compose exec -T db psql -U "$POSTGRES_USER" -d restodash_restore_test -tAc 'select count(*) from "MenuItem";'
+docker compose exec -T db dropdb -U "$POSTGRES_USER" restodash_restore_test
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+## Kiểm thử và CI
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+```bash
+npm run lint      # oxlint
+npm test          # unit (Vitest)
+npm run test:e2e  # e2e (Vitest + Supertest, cần DB test)
+npm run build     # nest build
+```
 
-## Resources
+- e2e tự áp migration và seed lên `TEST_DATABASE_URL` trước khi chạy; dữ liệu vận hành được reset giữa các test.
+- CI: [`.github/workflows/server.yml`](../.github/workflows/server.yml) — Postgres 17 service, Node 24, chạy `prisma generate` → `migrate deploy` → lint → unit → e2e → build. Frontend có workflow riêng `web.yml`.
 
-Check out a few resources that may come in handy when working with NestJS:
+## Reset cơ sở dữ liệu
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+make db-reset   # prisma migrate reset --force: xoá, migrate lại, seed lại
+```
 
-## Support
+Hoặc xoá hẳn volume rồi dựng lại: `docker compose down -v && make up && make migrate && make seed`.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Giới hạn Phase 1
 
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- Chưa nối frontend; frontend v1 vẫn đọc/ghi dữ liệu trên thiết bị.
+- Thực đơn và bàn chỉ đọc; chưa có CRUD món/bàn/nhân viên.
+- PIN không bị khoá khi nhập sai (D-12, rủi ro đã chấp nhận); chỉ email/mật khẩu bị rate limit.
+- Mỗi đơn một payment; chưa hỗ trợ hoàn tiền, chia nhiều phương thức thanh toán.
+- Chưa có trạng thái bàn, đặt bàn, báo cáo, offline sync, deploy VPS.
