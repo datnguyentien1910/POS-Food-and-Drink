@@ -4,6 +4,8 @@ Frontend POS cho nhà hàng/quán ăn: gọi món, giỏ hàng, giảm giá, tha
 
 > Backend, đăng nhập và đồng bộ nhiều máy sẽ được bổ sung ở giai đoạn sau. Hiện tại POS và trang Đơn hàng là hai màn hình dùng thật; các mục còn lại là placeholder có chủ đích.
 
+> **Tài liệu gốc cho mọi fork:** [PROJECT.md](PROJECT.md) — báo cáo dự án, kiến trúc, quyết định đã chốt, lộ trình Bàn/Đặt bàn/Nhân viên và quy trình lập kế hoạch. Đọc file này trước khi phát triển module mới.
+
 ![POS desktop](docs/screenshots/pos-desktop.jpg)
 
 ## Tính năng
