@@ -1,8 +1,10 @@
 # RestoDash POS — Thiết kế frontend
 
 Ngày: 2026-11-18
-Trạng thái: chờ duyệt
+Trạng thái: đã duyệt — triển khai v1 hoàn thành (19/11/2026)
 Tham chiếu: https://dribbble.com/shots/27321876-Restaurant-POS-Dashboard-UI-Design (Rexnor studio)
+
+> **Lưu ý lịch sử:** đây là thiết kế ban đầu. Một số tên trường đã đổi khi triển khai (`currentTable` → `tableId`, `orderNote` → `note`, `table` → `tableName`, `paidAt` → `createdAt`). Nguồn sự thật hiện tại là [`PROJECT.md`](../../../PROJECT.md) §4.4 và `src/types.ts`. Manifest PWA hiện hardcode trong `vite.config.ts`, không đọc từ `src/config.ts`.
 
 ## 1. Mục tiêu và bối cảnh
 
@@ -58,7 +60,7 @@ Tiêu chí thành công:
 - Ngôn ngữ giao diện: **tiếng Việt**; tiền tệ **VND**, format `vi-VN`, không phần thập phân.
 - Brand mặc định “RestoDash — POS System”, đổi được qua `src/config.ts`.
 - Ảnh món tải sẵn vào `src/assets/menu/`, nén WebP, khung hiển thị 4:3. Nguồn: ảnh stock miễn phí cùng món, nền sạch; ghi link nguồn trong README.
-- Animation bằng CSS thuần (150–220ms), không thêm thư viện motion.
+- Animation bằng CSS thuần (thực tế 150–300ms), không thêm thư viện motion.
 - PWA precache bằng `vite-plugin-pwa` chế độ autoUpdate; app chạy như web tĩnh (localhost/LAN hoặc hosting tĩnh). Backend sau này sẽ thay lớp service.
 - Trình duyệt mục tiêu chính: Chrome/Edge trên desktop; responsive kiểm tra cho tablet. Safari/iPad dùng được ở mức cơ bản, ghi chú lại nếu có khác biệt.
 
