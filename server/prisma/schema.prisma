@@ -1,0 +1,269 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+enum OrderStatus {
+  COMPLETED
+  VOIDED
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+}
+
+enum PaymentStatus {
+  COMPLETED
+  VOIDED
+}
+
+enum DiscountType {
+  AMOUNT
+  PERCENT
+}
+
+enum AuditAction {
+  AUTH_LOGIN_SUCCESS
+  AUTH_LOGIN_FAILED
+  PIN_LOGIN_SUCCESS
+  PIN_LOGIN_FAILED
+  PIN_CHANGED
+  DEVICE_REGISTERED
+  DEVICE_REVOKED
+  ORDER_CREATED
+  ORDER_VOIDED
+}
+
+model Restaurant {
+  id              String           @id @default(uuid()) @db.Uuid
+  slug            String           @unique
+  name            String
+  address         String?
+  phone           String?
+  taxRateBps      Int              @default(800)
+  currency        String           @default("VND")
+  timezone        String           @default("Asia/Ho_Chi_Minh")
+  createdAt       DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(6)
+  memberships     Membership[]
+  devices         Device[]
+  categories      Category[]
+  menuItems       MenuItem[]
+  tables          Table[]
+  orders          Order[]
+  auditLogs       AuditLog[]
+  idempotencyKeys IdempotencyKey[]
+  orderCounters   OrderCounter[]
+}
+
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  name         String
+  passwordHash String
+  pinHash      String?
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime     @updatedAt @db.Timestamptz(6)
+  memberships  Membership[]
+  devices      Device[]     @relation("DeviceRegisteredBy")
+  orders       Order[]
+  auditLogs    AuditLog[]   @relation("AuditActor")
+}
+
+model Membership {
+  id           String     @id @default(uuid()) @db.Uuid
+  restaurantId String     @db.Uuid
+  userId       String     @db.Uuid
+  role         Role
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, userId])
+  @@index([userId])
+}
+
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire])
+  @@map("session")
+}
+
+model Device {
+  id             String     @id @default(uuid()) @db.Uuid
+  restaurantId   String     @db.Uuid
+  name           String
+  tokenHash      String     @unique
+  registeredById String     @db.Uuid
+  lastSeenAt     DateTime?  @db.Timestamptz(6)
+  revokedAt      DateTime?  @db.Timestamptz(6)
+  createdAt      DateTime   @default(now()) @db.Timestamptz(6)
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  registeredBy   User       @relation("DeviceRegisteredBy", fields: [registeredById], references: [id], onDelete: Restrict)
+
+  @@index([restaurantId, revokedAt])
+}
+
+model Category {
+  id           String     @id @default(uuid()) @db.Uuid
+  restaurantId String     @db.Uuid
+  name         String
+  sortOrder    Int        @default(0)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items        MenuItem[]
+
+  @@unique([restaurantId, name])
+}
+
+model MenuItem {
+  id           String      @id @default(uuid()) @db.Uuid
+  restaurantId String      @db.Uuid
+  categoryId   String      @db.Uuid
+  legacyId     String?
+  name         String
+  description  String?
+  price        Int
+  imageKey     String?
+  available    Boolean     @default(true)
+  popular      Boolean     @default(false)
+  sortOrder    Int         @default(0)
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category     Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  orderItems   OrderItem[]
+
+  @@unique([restaurantId, legacyId])
+  @@index([restaurantId, categoryId])
+}
+
+model Table {
+  id           String     @id @default(uuid()) @db.Uuid
+  restaurantId String     @db.Uuid
+  legacyId     String?
+  name         String
+  seats        Int
+  zone         String?
+  sortOrder    Int        @default(0)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([restaurantId, legacyId])
+}
+
+model Order {
+  id             String        @id @default(uuid()) @db.Uuid
+  restaurantId   String        @db.Uuid
+  code           String
+  clientId       String?       @db.Uuid
+  tableId        String?       @db.Uuid
+  tableName      String
+  status         OrderStatus   @default(COMPLETED)
+  subtotal       Int
+  discountType   DiscountType?
+  discountValue  Int?
+  discountAmount Int           @default(0)
+  tax            Int
+  total          Int
+  note           String?
+  cashierId      String        @db.Uuid
+  cashierName    String
+  createdAt      DateTime      @default(now()) @db.Timestamptz(6)
+  voidedAt       DateTime?     @db.Timestamptz(6)
+  voidReason     String?
+  restaurant     Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  cashier        User          @relation(fields: [cashierId], references: [id], onDelete: Restrict)
+  items          OrderItem[]
+  payment        Payment?
+
+  @@unique([restaurantId, code])
+  @@unique([restaurantId, clientId])
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, status])
+}
+
+model OrderItem {
+  id         String    @id @default(uuid()) @db.Uuid
+  orderId    String    @db.Uuid
+  menuItemId String?   @db.Uuid
+  name       String
+  unitPrice  Int
+  qty        Int
+  note       String?
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+}
+
+model Payment {
+  id        String        @id @default(uuid()) @db.Uuid
+  orderId   String        @unique @db.Uuid
+  method    PaymentMethod
+  amount    Int
+  received  Int?
+  change    Int?
+  status    PaymentStatus @default(COMPLETED)
+  reference String?
+  createdAt DateTime      @default(now()) @db.Timestamptz(6)
+  order     Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id           String      @id @default(uuid()) @db.Uuid
+  restaurantId String      @db.Uuid
+  actorId      String?     @db.Uuid
+  deviceId     String?     @db.Uuid
+  action       AuditAction
+  entity       String?
+  entityId     String?
+  before       Json?
+  after        Json?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime    @default(now()) @db.Timestamptz(6)
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  actor        User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, action, createdAt])
+}
+
+model IdempotencyKey {
+  id           String     @id @default(uuid()) @db.Uuid
+  restaurantId String     @db.Uuid
+  key          String
+  endpoint     String
+  requestHash  String
+  statusCode   Int
+  responseJson Json
+  createdAt    DateTime   @default(now()) @db.Timestamptz(6)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, endpoint, key])
+  @@index([createdAt])
+}
+
+model OrderCounter {
+  restaurantId String     @db.Uuid
+  businessDate String
+  lastNumber   Int        @default(0)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@id([restaurantId, businessDate])
+}

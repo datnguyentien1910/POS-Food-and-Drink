@@ -485,6 +485,10 @@ npm run preview    # chạy bản build/PWA
 | ADR-10 | PWA `autoUpdate` | Đơn giản cho quán, không cần thao tác cập nhật | Có thể cần reload một lần sau bản mới |
 | ADR-11 | Không UI kit/motion library | Kiểm soát giao diện, bundle nhẹ | Phải tự viết component/animation |
 | ADR-12 | Một thiết bị/một tab | Chưa có backend đồng bộ | Không mở nhiều tab POS cùng lúc |
+| ADR-13 | Backend NestJS 12 + TypeScript (ESM) | Cùng hệ sinh thái TS với frontend; module/DI rõ, package first-party | Theo dõi API Nest; test chạy Vitest, không Jest |
+| ADR-14 | PostgreSQL 17 (Docker) + Prisma 7 | Quan hệ chặt (order/payment/audit), migration tường minh; adapter `@prisma/adapter-pg` | Cần Docker khi dev; không dùng NoSQL |
+| ADR-15 | Session cookie + `connect-pg-simple` | Đăng nhập email/mật khẩu đơn giản, thu hồi phiên ở DB | Cần bảng `session`; CSRF xử lý ở Phase 2 |
+| ADR-16 | PIN 4 số gắn thiết bị, không khoá sau nhập sai (D-12) | Thao tác nhanh tại quầy; rủi ro đoán PIN đã chấp nhận | Cần thiết bị đã đăng ký; không rate limit PIN ở Phase 1 |
 
 ---
 
@@ -590,7 +594,9 @@ npm run preview    # chạy bản build/PWA
 
 **Done khi:** POS vẫn 113 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
 
-### 8.3 Phase 1 — Nền tảng backend (backend-only, ~2,5 tuần)
+### 8.3 Phase 1 — Nền tảng backend (backend-only) ✅
+
+**Trạng thái:** hoàn thành (branch `feat/backend-foundation`). Frontend không đổi; root test vẫn 113/113.
 
 **Mục tiêu:** backend chạy local, sẵn sàng để Phase 2 nối frontend; **không thay đổi frontend** trong phase này.
 
@@ -600,7 +606,13 @@ npm run preview    # chạy bản build/PWA
 - API: auth, devices, menu/tables read-only, orders/payments, void, audit, health; prefix `/api/v1`, Swagger `/api/docs`.
 - Chưa làm: nối frontend, offline sync, CRUD menu/nhân viên, trạng thái bàn, báo cáo, deploy VPS.
 
-**Tài liệu:** [Spec](docs/superpowers/specs/2026-11-19-backend-foundation-spec.md) · [Plan](docs/superpowers/plans/2026-11-19-backend-foundation-plan.md)
+**Tài liệu:** [Spec](docs/superpowers/specs/2026-11-19-backend-foundation-spec.md) · [Plan](docs/superpowers/plans/2026-11-19-backend-foundation-plan.md) · [Hướng dẫn backend](server/README.md)
+
+**Chạy:** `cd server && make up && make migrate && make seed && npm run start:dev`.
+
+**Kiểm thử:** `cd server && npm run lint && npm test && npm run test:e2e && npm run build`; CI: `.github/workflows/server.yml`.
+
+**Quyết định PIN (D-12) đã chấp nhận rủi ro:** PIN không bị khoá khi nhập sai; chỉ email/mật khẩu bị rate limit 5 lần/phút/IP.
 
 **Done khi:** backend chạy sạch bằng Docker + seed; auth/order/void/idempotency pass; CI xanh; frontend vẫn 113/113; `src/` không đổi.
 
