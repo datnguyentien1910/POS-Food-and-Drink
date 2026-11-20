@@ -32,6 +32,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface RequestOptions {
   method?: HttpMethod
   body?: unknown
+  headers?: Record<string, string>
   timeoutMs?: number
   signal?: AbortSignal
 }
@@ -74,10 +75,12 @@ export async function request<T>(
     response = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? 'GET',
       credentials: 'include',
-      headers:
-        options.body === undefined
-          ? undefined
-          : { 'Content-Type': 'application/json' },
+      headers: {
+        ...(options.body === undefined
+          ? {}
+          : { 'Content-Type': 'application/json' }),
+        ...options.headers,
+      },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal,
     })

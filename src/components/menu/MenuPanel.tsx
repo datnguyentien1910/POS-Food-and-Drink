@@ -7,8 +7,8 @@ import {
   UtensilsCrossed,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { MENU_ITEMS } from '../../data/menu'
 import { queryMenu } from '../../lib/menu-query'
+import { useCatalogStore } from '../../store/useCatalogStore'
 import type { CategoryTabId, SortOption } from '../../types'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -30,6 +30,7 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 ]
 
 export function MenuPanel({ onAdd }: MenuPanelProps) {
+  const catalogItems = useCatalogStore((state) => state.items)
   const [category, setCategory] = useState<CategoryTabId>('all')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortOption>('default')
@@ -38,14 +39,14 @@ export function MenuPanel({ onAdd }: MenuPanelProps) {
 
   const result = useMemo(
     () =>
-      queryMenu(MENU_ITEMS, {
+      queryMenu(catalogItems, {
         category,
         query,
         sort,
         popularOnly,
         visibleCount,
       }),
-    [category, query, sort, popularOnly, visibleCount],
+    [catalogItems, category, query, sort, popularOnly, visibleCount],
   )
 
   const resetPage = () => setVisibleCount(PAGE_SIZE)

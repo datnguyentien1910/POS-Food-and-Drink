@@ -1,6 +1,6 @@
 import { Armchair, ShoppingBag } from 'lucide-react'
-import { TABLES } from '../../data/tables'
 import { cx } from '../../lib/cx'
+import { useCatalogStore } from '../../store/useCatalogStore'
 import { usePOSStore } from '../../store/usePOSStore'
 import { Modal } from '../ui/Modal'
 
@@ -12,6 +12,7 @@ interface TableModalProps {
 export function TableModal({ open, onClose }: TableModalProps) {
   const tableId = usePOSStore((state) => state.tableId)
   const setTable = usePOSStore((state) => state.setTable)
+  const tables = useCatalogStore((state) => state.tables)
 
   const choose = (id: string | null) => {
     setTable(id)
@@ -27,7 +28,7 @@ export function TableModal({ open, onClose }: TableModalProps) {
       size="lg"
     >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {TABLES.map((table) => {
+        {tables.map((table) => {
           const isActive = table.id === tableId
 
           return (
