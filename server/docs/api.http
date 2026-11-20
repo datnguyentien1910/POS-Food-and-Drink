@@ -1,0 +1,107 @@
+# RestoDash POS API — mẫu request
+# Dùng với VS Code REST Client (humao.rest-client) hoặc JetBrains HTTP Client.
+#
+# REST Client tự nhớ cookie theo host, nên sau khi gọi "login" (hoặc "pin")
+# các request sau dùng lại phiên `restodash.sid`.
+
+@host = http://localhost:3001/api/v1
+
+### Trạng thái app + DB
+GET {{host}}/health
+
+### Đăng nhập bằng email/mật khẩu (lưu cookie phiên)
+# @name login
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "owner@restodash.local",
+  "password": "Owner@12345"
+}
+
+### Phiên hiện tại
+GET {{host}}/auth/me
+
+### Danh sách nhân viên có PIN trên thiết bị này (cần cookie thiết bị)
+GET {{host}}/auth/staff
+
+### Đăng nhập bằng PIN (cần cookie thiết bị; chạy sau khi đã đăng ký thiết bị)
+POST {{host}}/auth/pin
+Content-Type: application/json
+
+{
+  "userId": "00000000-0000-0000-0000-000000000000",
+  "pin": "1234"
+}
+
+### Đổi PIN của chính mình
+POST {{host}}/auth/pin/change
+Content-Type: application/json
+
+{
+  "currentPin": "1234",
+  "newPin": "5678"
+}
+
+### Đăng xuất
+POST {{host}}/auth/logout
+
+### Đăng ký thiết bị (OWNER/MANAGER; phiên mật khẩu; lưu cookie restodash.device)
+# @name registerDevice
+POST {{host}}/devices
+Content-Type: application/json
+
+{
+  "name": "Quầy thu ngân 1"
+}
+
+### Danh sách thiết bị của quán
+GET {{host}}/devices
+
+### Thu hồi thiết bị
+DELETE {{host}}/devices/00000000-0000-0000-0000-000000000000
+
+### Thực đơn đầy đủ theo nhóm (lưu để lấy menuItemId)
+# @name menu
+GET {{host}}/menu
+
+### Danh sách nhóm món
+GET {{host}}/menu/categories
+
+### Danh sách bàn
+GET {{host}}/tables
+
+### Tạo đơn kèm thanh toán (bắt buộc Idempotency-Key)
+# @name createOrder
+POST {{host}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-{{$guid}}
+
+{
+  "items": [
+    {
+      "menuItemId": "{{menu.response.body.$.data.categories[0].items[0].id}}",
+      "qty": 2,
+      "note": "ít cay"
+    }
+  ],
+  "discount": { "type": "PERCENT", "value": 10 },
+  "payment": { "method": "CASH", "received": 500000 }
+}
+
+### Danh sách đơn (lọc + phân trang)
+GET {{host}}/orders?page=1&limit=20
+
+### Chi tiết một đơn
+GET {{host}}/orders/{{createOrder.response.body.$.data.id}}
+
+### Huỷ đơn (OWNER/MANAGER)
+POST {{host}}/orders/{{createOrder.response.body.$.data.id}}/void
+Content-Type: application/json
+
+{
+  "reason": "Khách đổi ý"
+}
+
+### Nhật ký hoạt động (OWNER/MANAGER)
+GET {{host}}/audit?page=1&limit=20
