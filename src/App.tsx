@@ -4,13 +4,15 @@ import { ChargeModal } from './components/modals/ChargeModal'
 import { ReceiptModal } from './components/modals/ReceiptModal'
 import { GlobalSearch } from './components/search/GlobalSearch'
 import { ToastProvider } from './components/ui/Toast'
-import type { PageId } from './config'
+import { RESTAURANT, type PageId } from './config'
+import { LoginPage } from './pages/LoginPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { POSPage } from './pages/POSPage'
+import { useAuthStore } from './store/useAuthStore'
 import type { OrderRecord } from './types'
 
-function AppContent() {
+function POSApp() {
   const [activePage, setActivePage] = useState<PageId>('pos')
   const [sidebarOpen, setSidebarOpen] = useState(
     () => window.innerWidth >= 1280,
@@ -74,6 +76,27 @@ function AppContent() {
       />
     </AppShell>
   )
+}
+
+function SplashScreen() {
+  return (
+    <div className="grid min-h-dvh place-items-center bg-bg">
+      <p className="text-lg font-extrabold text-primary">{RESTAURANT.name}</p>
+    </div>
+  )
+}
+
+function AppContent() {
+  const status = useAuthStore((state) => state.status)
+  const refresh = useAuthStore((state) => state.refresh)
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  if (status === 'checking') return <SplashScreen />
+  if (status === 'anonymous') return <LoginPage />
+  return <POSApp />
 }
 
 function App() {

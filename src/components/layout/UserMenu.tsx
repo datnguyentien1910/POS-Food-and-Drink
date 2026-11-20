@@ -1,5 +1,7 @@
 import { ChevronDown, LogOut, Settings, UserRound } from 'lucide-react'
-import { ACCOUNT, type PageId } from '../../config'
+import type { PageId } from '../../config'
+import { initialsOf, roleLabel } from '../../lib/role'
+import { useAuthStore } from '../../store/useAuthStore'
 import { Popover } from '../ui/Popover'
 import { useToast } from '../ui/toast-context'
 import { Avatar } from './Avatar'
@@ -10,6 +12,12 @@ interface UserMenuProps {
 
 export function UserMenu({ onNavigate }: UserMenuProps) {
   const { push } = useToast()
+  const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
+
+  const name = user?.name ?? 'Khách'
+  const role = user ? roleLabel(user.role) : 'Chưa đăng nhập'
+  const initials = user ? initialsOf(user.name) : '?'
 
   return (
     <Popover
@@ -23,13 +31,11 @@ export function UserMenu({ onNavigate }: UserMenuProps) {
           onClick={toggle}
           className="touch-target flex items-center gap-2.5 rounded-full p-1 pr-2 transition-colors hover:bg-bg"
         >
-          <Avatar initials={ACCOUNT.initials} />
+          <Avatar initials={initials} />
           <span className="hidden text-left leading-tight md:block">
-            <span className="block text-xs font-bold text-ink">
-              {ACCOUNT.name}
-            </span>
+            <span className="block text-xs font-bold text-ink">{name}</span>
             <span className="mt-0.5 block text-[10px] font-medium text-muted">
-              {ACCOUNT.role}
+              {role}
             </span>
           </span>
           <ChevronDown
@@ -43,12 +49,10 @@ export function UserMenu({ onNavigate }: UserMenuProps) {
       {(close) => (
         <div>
           <div className="flex items-center gap-3 rounded-lg bg-bg/70 px-3 py-2.5">
-            <Avatar initials={ACCOUNT.initials} size="lg" />
+            <Avatar initials={initials} size="lg" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-ink">
-                {ACCOUNT.name}
-              </p>
-              <p className="text-[11px] text-muted">{ACCOUNT.role}</p>
+              <p className="truncate text-sm font-bold text-ink">{name}</p>
+              <p className="text-[11px] text-muted">{role}</p>
             </div>
           </div>
 
@@ -81,7 +85,7 @@ export function UserMenu({ onNavigate }: UserMenuProps) {
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium text-negative transition-colors hover:bg-negative-soft"
             onClick={() => {
               close()
-              push('Đăng xuất sẽ khả dụng khi nối backend.', 'info')
+              void logout()
             }}
           >
             <LogOut size={15} />
