@@ -5,14 +5,18 @@ import {
   ReceiptText,
   RotateCcw,
   Search,
+  Ban,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { formatDateTime, formatVND } from '../lib/format'
 import { matchesQuery } from '../lib/search'
+import { cancel } from '../services/orderService'
+import { useAuthStore } from '../store/useAuthStore'
 import { usePOSStore } from '../store/usePOSStore'
-import type { OrderRecord, PaymentMethod } from '../types'
+import type { LocalOrder, OrderRecord, PaymentMethod } from '../types'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
+import { ConfirmModal } from '../components/modals/ConfirmModal'
 import { EmptyState } from '../components/ui/EmptyState'
 
 interface OrdersPageProps {
@@ -33,10 +37,37 @@ const METHOD_META: Record<
 const isToday = (timestamp: number) =>
   new Date(timestamp).toDateString() === new Date().toDateString()
 
+/** Sale lifecycle badge shown next to the order code. */
+function SyncStatus({ order }: { order: OrderRecord }) {
+  if (order.voided) return <Badge tone="negative">Đã huỷ</Badge>
+
+  switch (order.syncState) {
+    case 'synced':
+      return <Badge tone="positive">Đã đồng bộ</Badge>
+    case 'pending':
+    case 'inflight':
+      return <Badge tone="gold">Chờ đồng bộ</Badge>
+    case 'failed':
+      return <Badge tone="negative">Lỗi đồng bộ</Badge>
+    case 'conflict':
+      return <Badge tone="negative">Lệch giá</Badge>
+    case 'voided':
+      return <Badge tone="negative">Đã huỷ</Badge>
+    case 'legacy':
+      return <Badge tone="neutral">Chỉ trên máy</Badge>
+    default:
+      return null
+  }
+}
+
 export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
   const history = usePOSStore((state) => state.history)
+  const role = useAuthStore((state) => state.user?.role)
   const [scope, setScope] = useState<Scope>('today')
   const [query, setQuery] = useState('')
+  const [cancelTarget, setCancelTarget] = useState<LocalOrder | null>(null)
+
+  const canCancel = role === 'OWNER' || role === 'MANAGER'
 
   const orders = useMemo(
     () =>
@@ -184,6 +215,7 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
                         <Icon size={11} />
                         {meta.label}
                       </Badge>
+                      <SyncStatus order={order} />
                     </div>
                     <p className="mt-0.5 truncate text-[11px] text-muted">
                       {formatDateTime(order.createdAt)} · {order.tableName} ·{' '}
@@ -203,12 +235,47 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
                   >
                     Xem hoá đơn
                   </Button>
+
+                  {canCancel && !order.voided ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCancelTarget(order as LocalOrder)}
+                      className="shrink-0"
+                      aria-label={`Huỷ đơn ${order.code}`}
+                    >
+                      <Ban size={13} />
+                      Huỷ
+                    </Button>
+                  ) : null}
                 </article>
               </li>
             )
           })}
         </ul>
       )}
+
+      <ConfirmModal
+        open={cancelTarget !== null}
+        tone="danger"
+        title="Huỷ đơn này?"
+        description={
+          cancelTarget
+            ? `Đơn ${cancelTarget.code} sẽ bị huỷ${
+                cancelTarget.serverId
+                  ? ' và đồng bộ lên máy chủ'
+                  : ' trên thiết bị này'
+              }. Hành động không thể hoàn tác.`
+            : undefined
+        }
+        confirmLabel="Huỷ đơn"
+        cancelLabel="Giữ lại"
+        onConfirm={() => {
+          if (cancelTarget) cancel(cancelTarget, 'Huỷ bởi quản lý')
+          setCancelTarget(null)
+        }}
+        onClose={() => setCancelTarget(null)}
+      />
     </div>
   )
 }

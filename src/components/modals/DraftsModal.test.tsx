@@ -26,6 +26,7 @@ const resetStore = () => {
     note: '',
     drafts: [],
     history: [],
+    queue: [],
   })
 }
 

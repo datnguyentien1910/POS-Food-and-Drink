@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePOSStore } from '../../store/usePOSStore'
-import type { OrderRecord } from '../../types'
+import type { LocalOrder } from '../../types'
 import { ToastProvider } from '../ui/Toast'
 import { GlobalSearch } from './GlobalSearch'
 
@@ -32,11 +32,13 @@ const resetStore = () => {
     note: '',
     drafts: [],
     history: [],
+    queue: [],
   })
 }
 
-const order: OrderRecord = {
+const order: LocalOrder = {
   id: 'order-1',
+  clientId: 'order-1',
   code: 'HD-20261118-001',
   tableId: null,
   tableName: 'Mang đi',
@@ -49,6 +51,9 @@ const order: OrderRecord = {
   note: '',
   createdAt: new Date(2026, 10, 18, 12).getTime(),
   cashier: 'Thu ngân',
+  syncState: 'synced',
+  provisionalCode: false,
+  cashierId: 'u1',
 }
 
 describe('GlobalSearch', () => {

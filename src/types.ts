@@ -107,6 +107,7 @@ export type SyncState =
   | 'synced'
   | 'failed'
   | 'conflict'
+  | 'voided'
   | 'legacy'
 
 export type SyncItemKind = 'CREATE_ORDER' | 'VOID_ORDER'

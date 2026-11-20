@@ -31,6 +31,7 @@ const resetStore = () => {
     note: '',
     drafts: [],
     history: [],
+    queue: [],
   })
 }
 
@@ -122,7 +123,7 @@ describe('ChargeModal', () => {
     await user.click(screen.getByRole('button', { name: /Xem hoá đơn/ }))
 
     expect(onOpenReceipt).toHaveBeenCalledTimes(1)
-    expect(onOpenReceipt.mock.calls[0][0].code).toMatch(/^HD-\d{8}-001$/)
+    expect(onOpenReceipt.mock.calls[0][0].code).toMatch(/^OFF-/)
   })
 
   it('starts a new order from the success step', async () => {

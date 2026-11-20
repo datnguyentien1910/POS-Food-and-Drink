@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useAuthStore } from '../store/useAuthStore'
 import { usePOSStore } from '../store/usePOSStore'
-import type { OrderRecord } from '../types'
+import type { LocalOrder } from '../types'
 import { OrdersPage } from './OrdersPage'
 
 const at = (daysAgo: number, hour = 12) => {
@@ -16,8 +17,9 @@ const makeOrder = (
   code: string,
   createdAt: number,
   tableName = 'Bàn 05',
-): OrderRecord => ({
+): LocalOrder => ({
   id: code,
+  clientId: code,
   code,
   tableId: null,
   tableName,
@@ -39,6 +41,9 @@ const makeOrder = (
   note: '',
   createdAt,
   cashier: 'Thu ngân',
+  syncState: 'synced',
+  provisionalCode: false,
+  cashierId: 'u1',
 })
 
 const resetStore = () => {
@@ -50,6 +55,7 @@ const resetStore = () => {
     note: '',
     drafts: [],
     history: [],
+    queue: [],
   })
 }
 
@@ -149,5 +155,65 @@ describe('OrdersPage', () => {
 
     const cards = screen.getAllByRole('article')
     expect(cards).toHaveLength(1)
+  })
+
+  it('shows a sync badge for a pending order', () => {
+    usePOSStore.setState({
+      history: [
+        {
+          ...makeOrder('OFF-ABCD1234', at(0)),
+          clientId: 'client-1',
+          syncState: 'pending',
+          provisionalCode: true,
+        },
+      ],
+    })
+
+    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+
+    expect(screen.getByText('Chờ đồng bộ')).toBeInTheDocument()
+    expect(screen.getByText('OFF-ABCD1234')).toBeInTheDocument()
+  })
+
+  it('lets a manager cancel an unsynced order', async () => {
+    const user = userEvent.setup()
+    useAuthStore.setState({
+      user: {
+        id: 'u1',
+        name: 'Ngọc Anh',
+        email: 'manager@restodash.local',
+        role: 'MANAGER',
+        restaurantId: 'r1',
+      },
+    })
+    usePOSStore.setState({ history: [makeOrder('OFF-ABCD1234', at(0))] })
+
+    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Huỷ đơn OFF-ABCD1234' }))
+    await user.click(screen.getByRole('button', { name: 'Huỷ đơn' }))
+
+    expect(usePOSStore.getState().history[0].voided).toBe(true)
+    useAuthStore.setState({ user: null })
+  })
+
+  it('hides the cancel button from cashiers', () => {
+    useAuthStore.setState({
+      user: {
+        id: 'u2',
+        name: 'Thu Hà',
+        email: 'cashier@restodash.local',
+        role: 'CASHIER',
+        restaurantId: 'r1',
+      },
+    })
+    usePOSStore.setState({ history: [makeOrder('HD-20261118-001', at(0))] })
+
+    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+
+    expect(
+      screen.queryByRole('button', { name: /^Huỷ đơn/ }),
+    ).not.toBeInTheDocument()
+    useAuthStore.setState({ user: null })
   })
 })

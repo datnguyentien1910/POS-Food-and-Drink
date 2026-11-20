@@ -2,6 +2,7 @@ import { ChevronDown, LogOut, Settings, UserRound } from 'lucide-react'
 import type { PageId } from '../../config'
 import { initialsOf, roleLabel } from '../../lib/role'
 import { useAuthStore } from '../../store/useAuthStore'
+import { usePOSStore } from '../../store/usePOSStore'
 import { Popover } from '../ui/Popover'
 import { useToast } from '../ui/toast-context'
 import { Avatar } from './Avatar'
@@ -14,10 +15,27 @@ export function UserMenu({ onNavigate }: UserMenuProps) {
   const { push } = useToast()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
+  const queuedCount = usePOSStore(
+    (state) =>
+      state.queue.filter(
+        (item) => item.state !== 'synced' && item.state !== 'legacy',
+      ).length,
+  )
 
   const name = user?.name ?? 'Khách'
   const role = user ? roleLabel(user.role) : 'Chưa đăng nhập'
   const initials = user ? initialsOf(user.name) : '?'
+
+  const handleLogout = () => {
+    if (queuedCount > 0) {
+      push(
+        `Còn ${queuedCount} đơn chưa đồng bộ — hãy đồng bộ trước khi đăng xuất.`,
+        'error',
+      )
+      return
+    }
+    void logout()
+  }
 
   return (
     <Popover
@@ -85,7 +103,7 @@ export function UserMenu({ onNavigate }: UserMenuProps) {
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium text-negative transition-colors hover:bg-negative-soft"
             onClick={() => {
               close()
-              void logout()
+              handleLogout()
             }}
           >
             <LogOut size={15} />

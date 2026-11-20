@@ -19,7 +19,7 @@ export function ReceiptModal({ order, open, onClose }: ReceiptModalProps) {
       <Modal
         open
         title="Hoá đơn"
-        description={`${order.code} · ${order.tableName}`}
+        description={`${order.code}${order.provisionalCode ? ' (chưa đồng bộ)' : ''} · ${order.tableName}`}
         onClose={onClose}
         footer={
           <div className="flex items-center justify-between gap-2">

@@ -2,6 +2,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { PageId } from '../../config'
 import { IconButton } from '../ui/IconButton'
+import { SyncBadge } from '../sync/SyncBadge'
 import { Clock } from './Clock'
 import { NotificationMenu } from './NotificationMenu'
 import { UserMenu } from './UserMenu'
@@ -61,6 +62,7 @@ export function TopBar({
 
       <div className="ml-auto flex items-center gap-2.5 md:gap-3.5">
         <Clock />
+        <SyncBadge />
         <NotificationMenu onNavigate={onNavigate} />
         <span className="hidden h-8 w-px bg-line sm:block" />
         <UserMenu onNavigate={onNavigate} />

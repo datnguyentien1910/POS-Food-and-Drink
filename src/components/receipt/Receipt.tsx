@@ -33,6 +33,11 @@ export function Receipt({ order }: ReceiptProps) {
       <p className="mt-0.5 text-center text-[9px]">
         {order.code} · {formatDateTime(order.createdAt)}
       </p>
+      {order.provisionalCode ? (
+        <p className="mt-0.5 text-center text-[9px] font-bold">
+          Chưa đồng bộ — mã tạm
+        </p>
+      ) : null}
 
       <div className="mt-2 space-y-0.5 text-[9px]">
         <div className="flex justify-between gap-2">
