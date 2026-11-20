@@ -80,4 +80,9 @@ export class CreateOrderDto {
   @IsOptional()
   @IsUUID()
   clientId?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expectedTotal?: number;
 }

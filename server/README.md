@@ -94,7 +94,7 @@ Prefix `/api/v1`, Swagger mở ở `/api/docs`. Response thành công: `{ "data"
 | `GET` | `/menu/categories` | phiên | Danh sách nhóm món |
 | `GET` | `/tables` | phiên | Danh sách bàn |
 | `POST` | `/orders` | OWNER, MANAGER, CASHIER | Tạo đơn kèm thanh toán (cần `Idempotency-Key`) |
-| `GET` | `/orders` | OWNER, MANAGER, CASHIER | Danh sách đơn (lọc + phân trang) |
+| `GET` | `/orders` | OWNER, MANAGER, CASHIER | Danh sách đơn (lọc `status`, `tableId`, `clientId`, `q`, ngày + phân trang) |
 | `GET` | `/orders/:id` | OWNER, MANAGER, CASHIER | Chi tiết một đơn |
 | `POST` | `/orders/:id/void` | OWNER, MANAGER | Huỷ đơn |
 | `GET` | `/audit` | OWNER, MANAGER | Nhật ký hoạt động (lọc + phân trang) |
@@ -120,7 +120,9 @@ PIN **không bị khoá** khi nhập sai (quyết định D-12, rủi ro đã ch
 ## Idempotency và huỷ đơn
 
 - `POST /orders` **bắt buộc** header `Idempotency-Key` (1..100 ký tự). Gửi lại cùng key + cùng payload trả về đơn cũ; cùng key + payload khác trả `409`.
-- `clientId` (UUID tuỳ chọn) là định danh đơn do client sinh (chuẩn bị cho đồng bộ offline Phase 2). Gửi lại cùng `clientId` — kể cả với `Idempotency-Key` mới — trả về đơn đã tạo thay vì tạo trùng hoặc lỗi 500.
+- `clientId` (UUID tuỳ chọn) là định danh đơn do client sinh (chuẩn bị cho đồng bộ offline Phase 2). Gửi lại cùng `clientId` — kể cả với `Idempotency-Key` mới — trả về đơn đã tạo thay vì tạo trùng hoặc lỗi 500. `OrderResponse` luôn trả `clientId` (có thể `null`).
+- Lọc đơn theo `clientId`: `GET /orders?clientId=<uuid>` (chỉ trong phạm vi quán của phiên).
+- `expectedTotal` (số nguyên tuỳ chọn) là tổng tiền client đã thu khi bán offline. Nếu khác tổng server tính theo bảng giá hiện tại, server trả `409 PRICE_CHANGED` kèm `details: { expectedTotal, actualTotal }` và **không** ghi đơn, không tốn mã đơn, không ghi audit. Sau khi quản lý chấp nhận giá mới, client gửi lại với `Idempotency-Key` **mới** và bỏ `expectedTotal`.
 - Mã đơn dạng `HD-YYYYMMDD-NNN`, sinh theo ngày nghiệp vụ qua `OrderCounter`.
 - `POST /orders/:id/void` chỉ OWNER/MANAGER. Đơn đã huỷ không thể huỷ lại (an toàn khi chạy song song) và mọi thao tác đều ghi audit.
 

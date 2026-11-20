@@ -46,7 +46,7 @@ describe('Order history (e2e)', () => {
   async function createOrder(
     agent: ReturnType<typeof request.agent>,
     key: string,
-    overrides: { tableId?: string; received?: number } = {},
+    overrides: { tableId?: string; received?: number; clientId?: string } = {},
   ) {
     const response = await agent
       .post('/api/v1/orders')
@@ -57,6 +57,7 @@ describe('Order history (e2e)', () => {
           items: [{ legacyId: 'ga-nuong', qty: 1 }],
           payment: { method: 'CASH', received: overrides.received ?? 200000 },
           ...(overrides.tableId ? { tableId: overrides.tableId } : {}),
+          ...(overrides.clientId ? { clientId: overrides.clientId } : {}),
         }),
       )
       .expect(201);
@@ -176,6 +177,70 @@ describe('Order history (e2e)', () => {
 
     const byCashier = await agent.get('/api/v1/orders?q=thu ngân').expect(200);
     expect(byCashier.body.data.length).toBeGreaterThan(0);
+  });
+
+  it('filters by clientId', async () => {
+    const agent = await login();
+    const clientId = randomUUID();
+    const tagged = await createOrder(agent, 'q1', { clientId });
+    await createOrder(agent, 'q2');
+
+    const response = await agent
+      .get(`/api/v1/orders?clientId=${clientId}`)
+      .expect(200);
+
+    expect(response.body.data.map((entry: { id: string }) => entry.id)).toEqual([
+      tagged.id,
+    ]);
+  });
+
+  it('does not expose another restaurant order with the same clientId', async () => {
+    const agent = await login();
+    const clientId = randomUUID();
+    const own = await createOrder(agent, 'q1', { clientId });
+
+    const cashier = await prisma.user.findUniqueOrThrow({
+      where: { email: CASHIER.email },
+    });
+    const other = await prisma.restaurant.create({
+      data: { slug: `other-${randomUUID()}`, name: 'Quán khác' },
+    });
+    try {
+      await prisma.order.create({
+        data: {
+          restaurantId: other.id,
+          code: 'HD-OTHER-001',
+          clientId,
+          tableName: 'Mang đi',
+          subtotal: 1000,
+          tax: 80,
+          total: 1080,
+          cashierId: cashier.id,
+          cashierName: cashier.name,
+        },
+      });
+
+      const response = await agent
+        .get(`/api/v1/orders?clientId=${clientId}`)
+        .expect(200);
+
+      expect(
+        response.body.data.map((entry: { id: string }) => entry.id),
+      ).toEqual([own.id]);
+    } finally {
+      await prisma.restaurant.delete({ where: { id: other.id } });
+    }
+  });
+
+  it('rejects a malformed clientId filter', async () => {
+    const agent = await login();
+
+    await agent
+      .get('/api/v1/orders?clientId=not-a-uuid')
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      });
   });
 
   it('filters by table and returns the full order on detail', async () => {

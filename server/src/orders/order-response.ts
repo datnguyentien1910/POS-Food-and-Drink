@@ -26,6 +26,7 @@ export interface OrderResponse {
   id: string;
   code: string;
   status: OrderStatus;
+  clientId: string | null;
   tableId: string | null;
   tableName: string;
   items: OrderItemResponse[];
@@ -53,6 +54,7 @@ export function toOrderResponse(order: OrderWithRelations): OrderResponse {
     id: order.id,
     code: order.code,
     status: order.status,
+    clientId: order.clientId,
     tableId: order.tableId,
     tableName: order.tableName,
     items: order.items.map((item) => ({
