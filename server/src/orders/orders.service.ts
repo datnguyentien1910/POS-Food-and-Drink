@@ -7,7 +7,10 @@ import type { Prisma } from '../generated/prisma/client.js';
 import { computeChange, computeOrderTotals } from './money.js';
 import type { CreateOrderDto } from './dto/create-order.dto.js';
 import type { OrdersQueryDto } from './dto/orders-query.dto.js';
-import { IdempotencyService } from './idempotency.service.js';
+import {
+  IdempotencyService,
+  isUniqueViolation,
+} from './idempotency.service.js';
 import { OrderCodeService } from './order-code.service.js';
 import { toOrderResponse, type OrderResponse } from './order-response.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -37,14 +40,33 @@ export class OrdersService {
     idempotencyKey: string,
     meta: RequestMeta,
   ): Promise<OrderResponse> {
-    return this.idempotency.execute({
-      restaurantId: actor.restaurantId,
-      endpoint: ENDPOINT,
-      key: idempotencyKey,
-      payload: dto,
-      statusCode: 201,
-      handler: (tx) => this.createInTransaction(tx, dto, actor, meta),
-    });
+    try {
+      return await this.idempotency.execute({
+        restaurantId: actor.restaurantId,
+        endpoint: ENDPOINT,
+        key: idempotencyKey,
+        payload: dto,
+        statusCode: 201,
+        handler: (tx) => this.createInTransaction(tx, dto, actor, meta),
+      });
+    } catch (error) {
+      // `clientId` is the client-generated order identity (Phase 2 offline
+      // sync). A retry may arrive with a fresh Idempotency-Key, so the same
+      // clientId must replay the existing order instead of surfacing the
+      // unique-constraint violation as a 500. The early check inside
+      // `createInTransaction` handles the sequential case; this covers the
+      // race where two requests pass that check together.
+      if (dto.clientId && isUniqueViolation(error)) {
+        const existing = await this.findByClientId(
+          actor.restaurantId,
+          dto.clientId,
+        );
+        if (existing) {
+          return existing;
+        }
+      }
+      throw error;
+    }
   }
 
   async list(
@@ -103,6 +125,17 @@ export class OrdersService {
       throw new AppException(404, 'NOT_FOUND', ORDER_NOT_FOUND);
     }
     return toOrderResponse(order);
+  }
+
+  private async findByClientId(
+    restaurantId: string,
+    clientId: string,
+  ): Promise<OrderResponse | null> {
+    const order = await this.prisma.order.findUnique({
+      where: { restaurantId_clientId: { restaurantId, clientId } },
+      include: { items: true, payment: true },
+    });
+    return order ? toOrderResponse(order) : null;
   }
 
   async voidOrder(
@@ -167,6 +200,24 @@ export class OrdersService {
     actor: AuthenticatedUser,
     meta: RequestMeta,
   ): Promise<OrderResponse> {
+    // Replay an order this client already created. Runs after the
+    // idempotency-key check (in IdempotencyService), so reusing a key with a
+    // different payload still returns IDEMPOTENCY_CONFLICT.
+    if (dto.clientId) {
+      const existing = await tx.order.findUnique({
+        where: {
+          restaurantId_clientId: {
+            restaurantId: actor.restaurantId,
+            clientId: dto.clientId,
+          },
+        },
+        include: { items: true, payment: true },
+      });
+      if (existing) {
+        return toOrderResponse(existing);
+      }
+    }
+
     const restaurant = await tx.restaurant.findUniqueOrThrow({
       where: { id: actor.restaurantId },
     });

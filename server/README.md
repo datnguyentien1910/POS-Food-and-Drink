@@ -120,6 +120,7 @@ PIN **không bị khoá** khi nhập sai (quyết định D-12, rủi ro đã ch
 ## Idempotency và huỷ đơn
 
 - `POST /orders` **bắt buộc** header `Idempotency-Key` (1..100 ký tự). Gửi lại cùng key + cùng payload trả về đơn cũ; cùng key + payload khác trả `409`.
+- `clientId` (UUID tuỳ chọn) là định danh đơn do client sinh (chuẩn bị cho đồng bộ offline Phase 2). Gửi lại cùng `clientId` — kể cả với `Idempotency-Key` mới — trả về đơn đã tạo thay vì tạo trùng hoặc lỗi 500.
 - Mã đơn dạng `HD-YYYYMMDD-NNN`, sinh theo ngày nghiệp vụ qua `OrderCounter`.
 - `POST /orders/:id/void` chỉ OWNER/MANAGER. Đơn đã huỷ không thể huỷ lại (an toàn khi chạy song song) và mọi thao tác đều ghi audit.
 

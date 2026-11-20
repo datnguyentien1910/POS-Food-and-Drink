@@ -372,6 +372,59 @@ describe('Order creation (e2e)', () => {
     expect(await prisma.order.count()).toBe(1);
   });
 
+  it('dedupes by clientId when the idempotency key changes', async () => {
+    const agent = await login();
+    const clientId = randomUUID();
+    const body = orderPayload({
+      menuIds,
+      items: [{ legacyId: 'ga-nuong', qty: 1 }],
+      payment: { method: 'CASH', received: 200000 },
+      clientId,
+    });
+
+    const first = await post(agent, 'client-key-1', body).expect(201);
+    const second = await post(agent, 'client-key-2', body).expect(201);
+
+    expect(second.body.data.id).toBe(first.body.data.id);
+    expect(await prisma.order.count()).toBe(1);
+    // A deduped retry must not write a second ORDER_CREATED audit entry.
+    expect(
+      await prisma.auditLog.count({ where: { action: 'ORDER_CREATED' } }),
+    ).toBe(1);
+  });
+
+  it('collapses two concurrent requests with the same clientId into one order', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send(CASHIER)
+      .expect(200);
+    const cookie = cookieHeader(
+      login.headers['set-cookie'] as unknown as string[],
+    );
+    const body = orderPayload({
+      menuIds,
+      items: [{ legacyId: 'ga-nuong', qty: 1 }],
+      payment: { method: 'CASH', received: 200000 },
+      clientId: randomUUID(),
+    });
+
+    const send = (key: string) =>
+      request(app.getHttpServer())
+        .post('/api/v1/orders')
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', key)
+        .send(body);
+
+    const [first, second] = await Promise.all([
+      send('client-parallel-1'),
+      send('client-parallel-2'),
+    ]);
+
+    expect([first.status, second.status]).toEqual([201, 201]);
+    expect(first.body.data.id).toBe(second.body.data.id);
+    expect(await prisma.order.count()).toBe(1);
+  });
+
   it('collapses two concurrent requests with the same key into one order', async () => {
     const login = await request(app.getHttpServer())
       .post('/api/v1/auth/login')

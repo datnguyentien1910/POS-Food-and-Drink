@@ -35,7 +35,7 @@ function sortValue(value: unknown): unknown {
   return value;
 }
 
-function isUniqueViolation(error: unknown): boolean {
+export function isUniqueViolation(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
