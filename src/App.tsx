@@ -6,6 +6,7 @@ import { GlobalSearch } from './components/search/GlobalSearch'
 import { ToastProvider } from './components/ui/Toast'
 import { RESTAURANT, type PageId } from './config'
 import { LoginPage } from './pages/LoginPage'
+import { MenuPage } from './pages/MenuPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { POSPage } from './pages/POSPage'
@@ -51,6 +52,8 @@ function POSApp() {
         <POSPage onCharge={() => setChargeOpen(true)} />
       ) : activePage === 'orders' ? (
         <OrdersPage onOpenReceipt={setReceiptOrder} />
+      ) : activePage === 'menu' ? (
+        <MenuPage />
       ) : (
         <PlaceholderPage
           pageId={activePage}

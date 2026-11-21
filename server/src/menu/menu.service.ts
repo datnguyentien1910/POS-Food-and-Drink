@@ -1,13 +1,24 @@
+import { unlink } from 'node:fs/promises';
+import path from 'node:path';
 import { Injectable } from '@nestjs/common';
+import { AuditService } from '../audit/audit.service.js';
+import type { AuthenticatedUser } from '../auth/auth.types.js';
+import { AppException } from '../common/errors/app.exception.js';
+import type { MenuItem } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { CreateMenuItemDto } from './dto/create-menu-item.dto.js';
+import type { UpdateMenuItemDto } from './dto/update-menu-item.dto.js';
+import { menuUploadDir } from './menu-upload.js';
 
 export interface MenuItemResponse {
   id: string;
+  categoryId: string;
   legacyId: string | null;
   name: string;
   description: string | null;
   price: number;
   imageKey: string | null;
+  imageUrl: string | null;
   available: boolean;
   popular: boolean;
   sortOrder: number;
@@ -26,9 +37,17 @@ export interface MenuCategorySummary {
   sortOrder: number;
 }
 
+export interface MenuRequestMeta {
+  ip?: string;
+  userAgent?: string;
+}
+
 @Injectable()
 export class MenuService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async getMenu(restaurantId: string): Promise<MenuCategoryResponse[]> {
     const categories = await this.prisma.category.findMany({
@@ -45,17 +64,7 @@ export class MenuService {
       id: category.id,
       name: category.name,
       sortOrder: category.sortOrder,
-      items: category.items.map((item) => ({
-        id: item.id,
-        legacyId: item.legacyId,
-        name: item.name,
-        description: item.description,
-        price: item.price,
-        imageKey: item.imageKey,
-        available: item.available,
-        popular: item.popular,
-        sortOrder: item.sortOrder,
-      })),
+      items: category.items.map((item) => this.toResponse(item)),
     }));
   }
 
@@ -65,5 +74,242 @@ export class MenuService {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: { id: true, name: true, sortOrder: true },
     });
+  }
+
+  async createItem(
+    restaurantId: string,
+    dto: CreateMenuItemDto,
+    actor: AuthenticatedUser,
+    meta: MenuRequestMeta,
+  ): Promise<MenuItemResponse> {
+    await this.assertCategory(restaurantId, dto.categoryId);
+
+    const item = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.menuItem.create({
+        data: {
+          restaurantId,
+          categoryId: dto.categoryId,
+          name: dto.name,
+          description: this.normalizeDescription(dto.description) ?? null,
+          price: dto.price,
+          imageKey: dto.imageKey ?? null,
+          available: dto.available ?? true,
+          popular: dto.popular ?? false,
+          sortOrder: dto.sortOrder ?? 0,
+        },
+      });
+
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_CREATED',
+          entity: 'MenuItem',
+          entityId: created.id,
+          after: this.toResponse(created),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+
+      return created;
+    });
+
+    return this.toResponse(item);
+  }
+
+  async updateItem(
+    restaurantId: string,
+    id: string,
+    dto: UpdateMenuItemDto,
+    actor: AuthenticatedUser,
+    meta: MenuRequestMeta,
+  ): Promise<MenuItemResponse> {
+    const existing = await this.findItemOrThrow(restaurantId, id);
+    if (dto.categoryId !== undefined) {
+      await this.assertCategory(restaurantId, dto.categoryId);
+    }
+
+    const item = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.menuItem.update({
+        where: { id: existing.id },
+        data: {
+          ...(dto.categoryId !== undefined
+            ? { categoryId: dto.categoryId }
+            : {}),
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.description !== undefined
+            ? { description: this.normalizeDescription(dto.description) }
+            : {}),
+          ...(dto.price !== undefined ? { price: dto.price } : {}),
+          ...(dto.imageKey !== undefined ? { imageKey: dto.imageKey } : {}),
+          ...(dto.available !== undefined ? { available: dto.available } : {}),
+          ...(dto.popular !== undefined ? { popular: dto.popular } : {}),
+          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        },
+      });
+
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_UPDATED',
+          entity: 'MenuItem',
+          entityId: updated.id,
+          before: this.toResponse(existing),
+          after: this.toResponse(updated),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    return this.toResponse(item);
+  }
+
+  async setItemImage(
+    restaurantId: string,
+    id: string,
+    imageUrl: string,
+    actor: AuthenticatedUser,
+    meta: MenuRequestMeta,
+  ): Promise<MenuItemResponse> {
+    let existing: MenuItem;
+    try {
+      existing = await this.findItemOrThrow(restaurantId, id);
+    } catch (error) {
+      // The upload interceptor already wrote the new file to disk before this
+      // call; drop it so a bad target id cannot leave orphaned files.
+      await this.removeUploadedFile(imageUrl);
+      throw error;
+    }
+
+    const item = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.menuItem.update({
+        where: { id: existing.id },
+        data: { imageUrl },
+      });
+
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_UPDATED',
+          entity: 'MenuItem',
+          entityId: updated.id,
+          before: this.toResponse(existing),
+          after: this.toResponse(updated),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    await this.removeUploadedFile(existing.imageUrl);
+
+    return this.toResponse(item);
+  }
+
+  async deleteItem(
+    restaurantId: string,
+    id: string,
+    actor: AuthenticatedUser,
+    meta: MenuRequestMeta,
+  ): Promise<void> {
+    const existing = await this.findItemOrThrow(restaurantId, id);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.menuItem.delete({ where: { id: existing.id } });
+
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_DELETED',
+          entity: 'MenuItem',
+          entityId: existing.id,
+          before: this.toResponse(existing),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+    });
+
+    await this.removeUploadedFile(existing.imageUrl);
+  }
+
+  private async removeUploadedFile(imageUrl: string | null): Promise<void> {
+    if (!imageUrl?.startsWith('/uploads/menu/')) return;
+    try {
+      await unlink(path.join(menuUploadDir(), path.basename(imageUrl)));
+    } catch {
+      // The stored file may already be gone; cleanup is best-effort.
+    }
+  }
+
+  private normalizeDescription(
+    value: string | null | undefined,
+  ): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    return value.trim().length === 0 ? null : value;
+  }
+
+  private async findItemOrThrow(
+    restaurantId: string,
+    id: string,
+  ): Promise<MenuItem> {
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id, restaurantId },
+    });
+    if (!item) {
+      throw new AppException(
+        404,
+        'MENU_ITEM_NOT_FOUND',
+        'Không tìm thấy món',
+      );
+    }
+    return item;
+  }
+
+  private async assertCategory(
+    restaurantId: string,
+    categoryId: string,
+  ): Promise<void> {
+    const category = await this.prisma.category.findFirst({
+      where: { id: categoryId, restaurantId },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new AppException(
+        404,
+        'MENU_CATEGORY_NOT_FOUND',
+        'Không tìm thấy nhóm món',
+      );
+    }
+  }
+
+  private toResponse(item: MenuItem): MenuItemResponse {
+    return {
+      id: item.id,
+      categoryId: item.categoryId,
+      legacyId: item.legacyId,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      imageKey: item.imageKey,
+      imageUrl: item.imageUrl,
+      available: item.available,
+      popular: item.popular,
+      sortOrder: item.sortOrder,
+    };
   }
 }

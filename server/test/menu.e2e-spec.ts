@@ -59,6 +59,17 @@ describe('Menu (e2e)', () => {
     }
   });
 
+  it('includes a nullable imageUrl on every item', async () => {
+    const agent = await login();
+    const response = await agent.get('/api/v1/menu').expect(200);
+    const items = (
+      response.body.data.categories as Array<{
+        items: Array<Record<string, unknown>>;
+      }>
+    ).flatMap((category) => category.items);
+    for (const item of items) expect(item).toHaveProperty('imageUrl', null);
+  });
+
   it('rejects anonymous access', async () => {
     await request(app.getHttpServer()).get('/api/v1/menu').expect(401);
   });
