@@ -9,7 +9,13 @@ vi.mock('../api/auth', () => ({
   login: vi.fn(), me: vi.fn(), logout: vi.fn(),
   staff: vi.fn(), loginWithPin: vi.fn(), registerDevice: vi.fn(),
 }))
+vi.mock('../api/menu', () => ({
+  getMenu: vi.fn().mockResolvedValue([]),
+  getCategories: vi.fn().mockResolvedValue([]),
+  deleteMenuItem: vi.fn(),
+}))
 import * as authApi from '../api/auth'
+import { router } from './router'
 const meMock = vi.mocked(authApi.me)
 
 const USER: AuthUser = {
@@ -55,7 +61,11 @@ describe('hash router', () => {
     act(() => {
       useAuthStore.setState({ status: 'authenticated', user: USER, authMethod: 'password', expiresAt: '2026-11-21T00:00:00.000Z' })
     })
-    await screen.findByRole('button', { name: 'Thực đơn' })
+    // MenuPage thật sự render, KHÔNG phải PlaceholderPage của route ':pageId'
+    // (PlaceholderPage cũng có heading 'Thực đơn' nhưng mô tả khác + badge 'Đang hoàn thiện'):
+    await screen.findByText('Quản lý món, giá bán và trạng thái phục vụ.')
+    expect(screen.queryByText('Đang hoàn thiện')).not.toBeInTheDocument()
+    await waitFor(() => expect(router.state.location.pathname).toBe('/menu'))
     expect(window.location.hash).toBe('#/menu')
   })
 })
