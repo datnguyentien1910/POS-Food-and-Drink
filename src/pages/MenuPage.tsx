@@ -9,6 +9,7 @@ import type {
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
+import { MenuItemFormModal } from '../components/menu-management/MenuItemFormModal'
 import { formatVND } from '../lib/format'
 import { resolveMenuImage } from '../lib/menu-image'
 import { useAuthStore } from '../store/useAuthStore'
@@ -21,6 +22,9 @@ export function MenuPage() {
   const [categories, setCategories] = useState<ServerMenuCategorySummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editor, setEditor] = useState<{
+    item?: ServerMenuItem & { categoryId?: string }
+  } | null>(null)
 
   const fetchMenu = useCallback(async () => {
     try {
@@ -87,7 +91,7 @@ export function MenuPage() {
           </div>
 
           {canEdit ? (
-            <Button size="sm">
+            <Button size="sm" onClick={() => setEditor({})}>
               <Plus size={14} />
               Thêm món
             </Button>
@@ -124,7 +128,7 @@ export function MenuPage() {
           icon={<UtensilsCrossed size={22} />}
           title="Thực đơn đang trống"
           description="Thêm nhóm món và món đầu tiên để bắt đầu bán hàng."
-          action={canEdit ? <Button size="sm">Thêm món</Button> : undefined}
+          action={canEdit ? <Button size="sm" onClick={() => setEditor({})}>Thêm món</Button> : undefined}
           className="py-14"
         />
       ) : (
@@ -145,7 +149,14 @@ export function MenuPage() {
               ) : (
                 <ul className="divide-y divide-line">
                   {group.items.map((item) => (
-                    <ItemRow key={item.id} item={item} canEdit={canEdit} />
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      canEdit={canEdit}
+                      onEdit={() =>
+                        setEditor({ item: { ...item, categoryId: group.id } })
+                      }
+                    />
                   ))}
                 </ul>
               )}
@@ -153,6 +164,16 @@ export function MenuPage() {
           ))}
         </div>
       )}
+
+      {editor ? (
+        <MenuItemFormModal
+          open
+          categories={categories}
+          item={editor.item}
+          onClose={() => setEditor(null)}
+          onSaved={() => void fetchMenu()}
+        />
+      ) : null}
     </div>
   )
 }
@@ -160,9 +181,11 @@ export function MenuPage() {
 function ItemRow({
   item,
   canEdit,
+  onEdit,
 }: {
   item: ServerMenuItem
   canEdit: boolean
+  onEdit: () => void
 }) {
   return (
     <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-bg/60">
@@ -192,7 +215,7 @@ function ItemRow({
 
       {canEdit ? (
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={onEdit}>
             <Pencil size={12} />
             Sửa
           </Button>
