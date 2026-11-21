@@ -1,6 +1,9 @@
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
@@ -27,6 +30,14 @@ export function configureApp(app: INestApplication): void {
   // CSP is disabled only so the local Swagger UI renders; the other helmet
   // headers stay on and production must revisit this.
   app.use(helmet({ contentSecurityPolicy: false }));
+
+  const uploadDir =
+    config.get<string>('UPLOAD_DIR') ?? path.join(process.cwd(), 'uploads');
+  mkdirSync(uploadDir, { recursive: true });
+  (app as NestExpressApplication).useStaticAssets(uploadDir, {
+    prefix: '/uploads/',
+  });
+
   app.use(cookieParser());
   app.use(
     session({

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,8 +10,16 @@ import {
   Patch,
   Post,
   Req,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiCookieAuth,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Request } from 'express';
 import { SESSION_COOKIE } from '../auth/auth.constants.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
@@ -19,6 +28,7 @@ import { Roles } from '../common/decorators/roles.decorator.js';
 import { clientIp, userAgent } from '../common/http/request.util.js';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto.js';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto.js';
+import { MenuImageUploadInterceptor } from './menu-upload.js';
 import { MenuService } from './menu.service.js';
 import type {
   MenuCategoryResponse,
@@ -76,6 +86,37 @@ export class MenuController {
       ip: clientIp(request),
       userAgent: userAgent(request),
     });
+  }
+
+  @Post('items/:id/image')
+  @HttpCode(200)
+  @Roles('OWNER', 'MANAGER')
+  @UseInterceptors(MenuImageUploadInterceptor)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+      required: ['file'],
+    },
+  })
+  @ApiOperation({ summary: 'Tải ảnh món' })
+  uploadImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ): Promise<MenuItemResponse> {
+    if (!file) {
+      throw new BadRequestException('Thiếu file ảnh');
+    }
+    return this.menuService.setItemImage(
+      user.restaurantId,
+      id,
+      `/uploads/menu/${file.filename}`,
+      user,
+      { ip: clientIp(request), userAgent: userAgent(request) },
+    );
   }
 
   @Delete('items/:id')

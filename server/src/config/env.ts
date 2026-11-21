@@ -10,6 +10,7 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(32),
   PIN_PEPPER: z.string().min(32),
   CORS_ORIGINS: z.string().default(''),
+  UPLOAD_DIR: z.string().optional(),
   SWAGGER_ENABLED: z
     .enum(['true', 'false'])
     .default('true')

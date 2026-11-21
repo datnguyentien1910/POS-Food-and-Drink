@@ -1,3 +1,5 @@
+import { unlink } from 'node:fs/promises';
+import path from 'node:path';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
@@ -6,6 +8,7 @@ import type { MenuItem } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateMenuItemDto } from './dto/create-menu-item.dto.js';
 import type { UpdateMenuItemDto } from './dto/update-menu-item.dto.js';
+import { menuUploadDir } from './menu-upload.js';
 
 export interface MenuItemResponse {
   id: string;
@@ -137,6 +140,46 @@ export class MenuService {
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
       },
     });
+
+    await this.audit.record({
+      restaurantId,
+      actorId: actor.id,
+      action: 'MENU_ITEM_UPDATED',
+      entity: 'MenuItem',
+      entityId: item.id,
+      before: this.toResponse(existing),
+      after: this.toResponse(item),
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
+
+    return this.toResponse(item);
+  }
+
+  async setItemImage(
+    restaurantId: string,
+    id: string,
+    imageUrl: string,
+    actor: AuthenticatedUser,
+    meta: MenuRequestMeta,
+  ): Promise<MenuItemResponse> {
+    const existing = await this.findItemOrThrow(restaurantId, id);
+
+    const item = await this.prisma.menuItem.update({
+      where: { id: existing.id },
+      data: { imageUrl },
+    });
+
+    if (existing.imageUrl?.startsWith('/uploads/menu/')) {
+      try {
+        await unlink(
+          path.join(menuUploadDir(), path.basename(existing.imageUrl)),
+        );
+      } catch {
+        // The stored file may already be gone; replacing the image still
+        // succeeds.
+      }
+    }
 
     await this.audit.record({
       restaurantId,

@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { access, readdir, rm } from 'node:fs/promises';
+import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp } from './helpers/create-test-app.js';
+import { resetOperationalData } from './helpers/db.js';
 
 const OWNER = { email: 'owner@restodash.local', password: 'Owner@12345' };
 const MANAGER = { email: 'manager@restodash.local', password: 'Manager@12345' };
@@ -18,6 +21,8 @@ describe('Menu items (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
     prisma = app.get(PrismaService);
+    await resetOperationalData(prisma);
+    await prisma.menuItem.deleteMany({ where: { legacyId: null } });
 
     const owner = await login(OWNER);
     const response = await owner.get('/api/v1/menu').expect(200);
@@ -28,8 +33,21 @@ describe('Menu items (e2e)', () => {
     if (createdIds.length > 0) {
       await prisma.menuItem.deleteMany({ where: { id: { in: createdIds } } });
     }
+    await rm(uploadRoot(), { recursive: true, force: true });
     await app.close();
   });
+
+  function uploadRoot(): string {
+    return process.env.UPLOAD_DIR ?? path.join(process.cwd(), 'uploads');
+  }
+
+  async function uploadedFiles(): Promise<string[]> {
+    try {
+      return await readdir(path.join(uploadRoot(), 'menu'));
+    } catch {
+      return [];
+    }
+  }
 
   async function login(credentials: { email: string; password: string }) {
     const agent = request.agent(app.getHttpServer());
@@ -216,6 +234,112 @@ describe('Menu items (e2e)', () => {
       .post('/api/v1/menu/items')
       .send({ categoryId, name: 'Khách vãng lai', price: 1000 })
       .expect(401);
+  });
+
+  it('uploads a webp image and exposes imageUrl', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, { name: 'Món có ảnh' });
+    const id = trackItem(created);
+
+    const upload = await owner
+      .post(`/api/v1/menu/items/${id}/image`)
+      .attach('file', Buffer.from('fake-webp-bytes'), {
+        filename: 'a.webp',
+        contentType: 'image/webp',
+      })
+      .expect(200);
+
+    const imageUrl = upload.body.data.imageUrl as string;
+    expect(imageUrl).toMatch(/^\/uploads\/menu\/[0-9a-f-]+\.webp$/);
+    const filename = path.basename(imageUrl);
+    expect(await uploadedFiles()).toContain(filename);
+
+    const menu = await owner.get('/api/v1/menu').expect(200);
+    const items = (
+      menu.body.data.categories as Array<{
+        items: Array<{ id: string; imageUrl: string | null }>;
+      }>
+    ).flatMap((category) => category.items);
+    expect(items).toContainEqual(
+      expect.objectContaining({ id, imageUrl }),
+    );
+
+    await request(app.getHttpServer()).get(imageUrl).expect(200);
+  });
+
+  it('rejects a non-image upload with 400 IMAGE_INVALID_TYPE and writes no file', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, { name: 'Món ảnh sai loại' });
+    const id = trackItem(created);
+    const before = await uploadedFiles();
+
+    await owner
+      .post(`/api/v1/menu/items/${id}/image`)
+      .attach('file', Buffer.from('not an image'), {
+        filename: 'a.txt',
+        contentType: 'text/plain',
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.error.code).toBe('IMAGE_INVALID_TYPE');
+      });
+
+    expect(await uploadedFiles()).toEqual(before);
+  });
+
+  it('rejects an image larger than 2MB with 400 IMAGE_TOO_LARGE and writes no file', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, { name: 'Món ảnh quá lớn' });
+    const id = trackItem(created);
+    const before = await uploadedFiles();
+
+    await owner
+      .post(`/api/v1/menu/items/${id}/image`)
+      .attach('file', Buffer.alloc(2 * 1024 * 1024 + 1), {
+        filename: 'big.png',
+        contentType: 'image/png',
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.error.code).toBe('IMAGE_TOO_LARGE');
+      });
+
+    expect(await uploadedFiles()).toEqual(before);
+  });
+
+  it('replaces the previous uploaded image file', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, { name: 'Món đổi ảnh' });
+    const id = trackItem(created);
+
+    const first = await owner
+      .post(`/api/v1/menu/items/${id}/image`)
+      .attach('file', Buffer.from('first'), {
+        filename: 'first.webp',
+        contentType: 'image/webp',
+      })
+      .expect(200);
+    const firstPath = path.join(
+      uploadRoot(),
+      'menu',
+      path.basename(first.body.data.imageUrl as string),
+    );
+
+    const second = await owner
+      .post(`/api/v1/menu/items/${id}/image`)
+      .attach('file', Buffer.from('second'), {
+        filename: 'second.webp',
+        contentType: 'image/webp',
+      })
+      .expect(200);
+    const secondPath = path.join(
+      uploadRoot(),
+      'menu',
+      path.basename(second.body.data.imageUrl as string),
+    );
+
+    await expect(access(firstPath)).rejects.toThrow();
+    await expect(access(secondPath)).resolves.toBeUndefined();
   });
 
   it('deletes an item and records MENU_ITEM_DELETED audit', async () => {
