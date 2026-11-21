@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { RouterProvider } from 'react-router'
 import { router } from './app/router'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider } from './components/ui/Toast'
 import { RESTAURANT } from './config'
 import { LoginPage } from './pages/LoginPage'
@@ -30,7 +31,9 @@ function AppContent() {
 function App() {
   return (
     <ToastProvider>
-      <AppContent />
+      <ErrorBoundary>
+        <AppContent />
+      </ErrorBoundary>
     </ToastProvider>
   )
 }
