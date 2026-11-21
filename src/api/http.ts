@@ -72,6 +72,13 @@ export async function request<T>(
 
   const isFormData = options.body instanceof FormData
 
+  let requestBody: BodyInit | undefined
+  if (options.body instanceof FormData) {
+    requestBody = options.body
+  } else if (options.body !== undefined) {
+    requestBody = JSON.stringify(options.body)
+  }
+
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
@@ -83,12 +90,7 @@ export async function request<T>(
           : { 'Content-Type': 'application/json' }),
         ...options.headers,
       },
-      body:
-        options.body === undefined
-          ? undefined
-          : isFormData
-            ? options.body
-            : JSON.stringify(options.body),
+      body: requestBody,
       signal: controller.signal,
     })
   } catch (error) {

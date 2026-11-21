@@ -1,6 +1,7 @@
 import { ImageOff, Pencil, Plus, RotateCcw, Trash2, UtensilsCrossed } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getCategories, getMenu } from '../api/menu'
+import { getCategories, getMenu, deleteMenuItem } from '../api/menu'
+import { ApiError } from '../api/http'
 import type {
   ServerMenuCategory,
   ServerMenuCategorySummary,
@@ -9,14 +10,18 @@ import type {
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
+import { useToast } from '../components/ui/toast-context'
+import { ConfirmModal } from '../components/modals/ConfirmModal'
 import { MenuItemFormModal } from '../components/menu-management/MenuItemFormModal'
 import { formatVND } from '../lib/format'
 import { resolveMenuImage } from '../lib/menu-image'
+import { useCatalogStore } from '../store/useCatalogStore'
 import { useAuthStore } from '../store/useAuthStore'
 
 export function MenuPage() {
   const role = useAuthStore((state) => state.user?.role)
   const canEdit = role === 'OWNER' || role === 'MANAGER'
+  const { push } = useToast()
 
   const [menu, setMenu] = useState<ServerMenuCategory[]>([])
   const [categories, setCategories] = useState<ServerMenuCategorySummary[]>([])
@@ -25,6 +30,10 @@ export function MenuPage() {
   const [editor, setEditor] = useState<{
     item?: ServerMenuItem & { categoryId?: string }
   } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<ServerMenuItem | null>(
+    null,
+  )
+  const [deleting, setDeleting] = useState(false)
 
   const fetchMenu = useCallback(async () => {
     try {
@@ -66,6 +75,25 @@ export function MenuPage() {
   }, [categories, menu])
 
   const itemCount = groups.reduce((sum, group) => sum + group.items.length, 0)
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleting) return
+    setDeleting(true)
+    try {
+      await deleteMenuItem(pendingDelete.id)
+      setPendingDelete(null)
+      push('Đã xoá món khỏi thực đơn', 'success')
+      await useCatalogStore.getState().refresh()
+      await fetchMenu()
+    } catch (cause) {
+      push(
+        cause instanceof ApiError ? cause.message : 'Không xoá được món.',
+        'error',
+      )
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
@@ -156,6 +184,7 @@ export function MenuPage() {
                       onEdit={() =>
                         setEditor({ item: { ...item, categoryId: group.id } })
                       }
+                      onDelete={() => setPendingDelete(item)}
                     />
                   ))}
                 </ul>
@@ -174,6 +203,20 @@ export function MenuPage() {
           onSaved={() => void fetchMenu()}
         />
       ) : null}
+
+      <ConfirmModal
+        open={Boolean(pendingDelete)}
+        title="Xoá món?"
+        description={
+          pendingDelete
+            ? `Món "${pendingDelete.name}" sẽ bị xoá khỏi thực đơn. Các đơn cũ vẫn giữ thông tin món.`
+            : undefined
+        }
+        confirmLabel="Xoá món"
+        tone="danger"
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   )
 }
@@ -182,10 +225,12 @@ function ItemRow({
   item,
   canEdit,
   onEdit,
+  onDelete,
 }: {
   item: ServerMenuItem
   canEdit: boolean
   onEdit: () => void
+  onDelete: () => void
 }) {
   return (
     <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-bg/60">
@@ -223,6 +268,7 @@ function ItemRow({
             variant="ghost"
             size="sm"
             className="text-negative hover:bg-negative-soft"
+            onClick={onDelete}
           >
             <Trash2 size={12} />
             Xoá

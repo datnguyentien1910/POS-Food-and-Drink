@@ -1,14 +1,18 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Role } from '../api/types'
 import type { ServerMenuCategory } from '../api/types'
+import { deleteMenuItem, getCategories, getMenu } from '../api/menu'
+import { useCatalogStore } from '../store/useCatalogStore'
 import { useAuthStore } from '../store/useAuthStore'
-import { getCategories, getMenu } from '../api/menu'
+import { ToastProvider } from '../components/ui/Toast'
 import { MenuPage } from './MenuPage'
 
 vi.mock('../api/menu', () => ({
   getMenu: vi.fn(),
   getCategories: vi.fn(),
+  deleteMenuItem: vi.fn(),
 }))
 
 const MENU: ServerMenuCategory[] = [
@@ -60,16 +64,25 @@ function setRole(role: Role) {
   })
 }
 
+function renderPage() {
+  return render(
+    <ToastProvider>
+      <MenuPage />
+    </ToastProvider>,
+  )
+}
+
 describe('MenuPage', () => {
   beforeEach(() => {
     vi.mocked(getMenu).mockResolvedValue(MENU)
     vi.mocked(getCategories).mockResolvedValue(CATEGORIES)
+    vi.mocked(deleteMenuItem).mockResolvedValue(undefined)
   })
 
   it('shows items and management actions for an owner', async () => {
     setRole('OWNER')
 
-    render(<MenuPage />)
+    renderPage()
 
     expect(await screen.findByText('Gà nướng')).toBeInTheDocument()
     expect(screen.getByText('109.000 ₫')).toBeInTheDocument()
@@ -81,7 +94,7 @@ describe('MenuPage', () => {
   it('hides management actions from a cashier', async () => {
     setRole('CASHIER')
 
-    render(<MenuPage />)
+    renderPage()
 
     expect(await screen.findByText('Gà nướng')).toBeInTheDocument()
     expect(
@@ -98,7 +111,7 @@ describe('MenuPage', () => {
   it('marks an unavailable item as temporarily sold out', async () => {
     setRole('OWNER')
 
-    render(<MenuPage />)
+    renderPage()
 
     expect(await screen.findByText('Phở bò')).toBeInTheDocument()
     expect(screen.getByText('Tạm hết món')).toBeInTheDocument()
@@ -107,9 +120,29 @@ describe('MenuPage', () => {
   it('prefers the uploaded image URL over the bundled asset', async () => {
     setRole('OWNER')
 
-    render(<MenuPage />)
+    renderPage()
 
     const image = await screen.findByAltText('Phở bò')
     expect(image).toHaveAttribute('src', '/uploads/menu/pho.webp')
+  })
+
+  it('deletes an item after confirmation and refreshes the catalog', async () => {
+    const user = userEvent.setup()
+    setRole('OWNER')
+    const refresh = vi
+      .spyOn(useCatalogStore.getState(), 'refresh')
+      .mockResolvedValue(undefined)
+
+    renderPage()
+
+    expect(await screen.findByText('Gà nướng')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Xoá' })[0])
+
+    expect(screen.getByText('Xoá món?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Xoá món' }))
+
+    await waitFor(() => expect(deleteMenuItem).toHaveBeenCalledWith('m1'))
+    expect(refresh).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(getMenu).toHaveBeenCalledTimes(2))
   })
 })
