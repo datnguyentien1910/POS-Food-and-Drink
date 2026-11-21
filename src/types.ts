@@ -19,6 +19,8 @@ export interface MenuItem {
   serverId?: string
   /** Asset key from the catalog response, used to resolve the image. */
   imageKey?: string | null
+  /** Uploaded image URL; takes precedence over `imageKey`. */
+  imageUrl?: string | null
   /** `false` disables ordering the item. */
   available?: boolean
 }

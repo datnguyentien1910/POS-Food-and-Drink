@@ -1,4 +1,4 @@
-import { assetFor } from './catalog-assets'
+import { resolveMenuImage } from './menu-image'
 import type { ServerMenuCategory, ServerTable } from '../api/types'
 import type { CategoryId, MenuItem, TableOption } from '../types'
 
@@ -30,7 +30,8 @@ export function mapMenuItems(categories: ServerMenuCategory[]): MenuItem[] {
         price: item.price,
         category: categoryId,
         imageKey: item.imageKey,
-        image: assetFor(item.imageKey),
+        imageUrl: item.imageUrl,
+        image: resolveMenuImage(item.imageUrl, item.imageKey),
         available: item.available,
         popular: item.popular,
       })
