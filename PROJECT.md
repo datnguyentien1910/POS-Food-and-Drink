@@ -52,11 +52,11 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | --- | --- |
 | Màn hình POS | **Dùng thật** |
 | Màn hình Đơn hàng | **Dùng thật** (lịch sử local + trạng thái đồng bộ) |
-| 9 màn hình còn lại | Placeholder có chủ đích |
+| 8 màn hình còn lại | Placeholder có chủ đích |
 | Backend/API/đăng nhập/đồng bộ | **[Cập nhật] Dùng thật** — NestJS + PostgreSQL trong `server/`; PIN theo thiết bị; hàng đợi đơn + sync nền |
 | Thanh toán ngân hàng/thẻ thật | **Chưa có** — chỉ ghi nhận phương thức |
 | Máy in ESC/POS | **Chưa có** — in qua hộp thoại trình duyệt |
-| Test | **[Cập nhật] 150/150 pass** (root, 27 file) + server 57 unit / 75 e2e |
+| Test | **[Cập nhật] 177/177 pass** (root, 33 file) + server 57 unit / 75 e2e |
 | Lint | `oxlint` sạch (root); `eslint` sạch (server) |
 | Build | Pass; PWA precache 30 entries (~1.68 MB) |
 | QA giao diện | 1440×900, 1280×800, 1024×768, 390×844; touch 768×1024 |
@@ -157,7 +157,7 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 | Tổng quan | Placeholder | Sẽ có khi nối backend |
 | Bàn | Placeholder | Module tiếp theo sau nền tảng |
 | Đặt bàn | Placeholder | Phụ thuộc Bàn + Khách hàng |
-| Thực đơn | Placeholder | Hiện sửa bằng file dữ liệu |
+| Thực đơn | Dùng thật | Quản lý món/danh mục qua server (Owner/Manager được sửa) |
 | Khách hàng | Placeholder | Phụ thuộc backend |
 | Báo cáo | Placeholder | Phụ thuộc đơn hàng/chi phí thật |
 | Chi phí | Placeholder | Phụ thuộc backend |
@@ -166,11 +166,11 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 ### 2.2 Chất lượng hiện tại
 
-**[Cập nhật 20/11/2026]**
+**[Cập nhật 21/11/2026]**
 
 | Kiểm tra | Kết quả |
 | --- | --- |
-| `npm test` (root) | 150 pass / 27 file |
+| `npm test` (root) | 177 pass / 33 file |
 | `npm run lint` (root) | Pass (`oxlint`) |
 | `npm run build` (root) | Pass; TypeScript strict + Vite build |
 | `server`: `lint`/`test`/`test:e2e`/`build` | Pass; 57 unit / 75 e2e |
@@ -280,7 +280,7 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 - Modal dùng `<dialog>` native: focus trap, Esc, backdrop.
 - Toast dùng `aria-live="polite"`, tự tắt sau 3 giây.
-- Không dùng router ở v1; chuyển trang bằng state trong `App.tsx`.
+- Điều hướng qua hash router (`src/app/router.tsx`); mỗi trang có URL dạng `#/<page>` (ví dụ `#/pos`, `#/orders`, `#/menu`), back/forward và deep-link hoạt động.
 
 ### 3.4 Tương tác và accessibility
 
@@ -360,7 +360,8 @@ GlobalSearch ──searchEverything──▶ menu + drafts + history
 ```text
 src/
   main.tsx              mount React, import font + CSS
-  App.tsx               page switch, modal thanh toán/hoá đơn
+  App.tsx               auth gate + ErrorBoundary + RouterProvider
+  app/router.tsx        hash router, route table 11 trang, layout + layout context
   config.ts             brand, địa chỉ, VAT, số bàn, danh sách trang
   types.ts              domain types
   index.css             theme, animation, touch, print CSS
@@ -378,6 +379,7 @@ src/
   store/
     usePOSStore.ts      Zustand persist + validate + storage error
   components/
+    ErrorBoundary.tsx   chặn lỗi render, trang lỗi tiếng Việt
     layout/             AppShell, Sidebar, TopBar, StorageWarning...
     menu/               MenuPanel, MenuGrid, MenuCard, CategoryTabs
     order/              OrderPanel, CartRow, OrderSummary, TableBadge
@@ -389,7 +391,7 @@ src/
   pages/
     POSPage.tsx         màn hình bán hàng
     OrdersPage.tsx      lịch sử đơn
-    PlaceholderPage.tsx 9 trang chờ backend
+    PlaceholderPage.tsx 8 trang chờ backend
   test/setup.ts         jest-dom, cleanup, dialog polyfill, viewport 1440×900
 docs/
   superpowers/specs/    thiết kế đã duyệt
@@ -432,7 +434,7 @@ public/                 favicon, icon PWA
 
 - `addItem`: nếu món đã có thì tăng `qty`, chưa có thì tạo `lineId` mới.
 - `decrement`: giảm; về 0 thì xoá dòng.
-- `clearCart`: **hiện chỉ xoá `cart`**, giữ nguyên `tableId`, `discount`, `note`; nút “Xoá đơn” chưa có `ConfirmModal`. Đây là hạn chế đã biết — xem §7.2.
+- `resetOrder`: **[Cập nhật]** xoá toàn bộ đơn hiện tại — `cart`, `tableId` (về `null`), `discount` (về `{amount,0}`) và `note` (về `''`). Nút “Xoá đơn” mở `ConfirmModal` trước khi xoá (trước đây là `clearCart`, chỉ xoá `cart`).
 - `saveDraft`: chỉ lưu khi giỏ có món; snapshot giỏ rồi làm trống đơn hiện tại.
 - `loadDraft`: nạp lại giỏ/bàn/giảm giá/ghi chú và xoá nháp khỏi danh sách.
 - `completeOrder`: **[Cập nhật]** snapshot món, tính totals, sinh `clientId`, ghi đơn local với mã tạm `OFF-…` (`syncState: 'pending'`), đẩy vào `queue` rồi kích hoạt sync nền. Mã `HD-…` từ server được áp vào khi sync xong.
@@ -469,7 +471,7 @@ total         = taxable + tax
 ```bash
 npm install
 npm run dev        # http://localhost:5173, proxy /api → :3001
-npm test           # 150 test
+npm test           # 177 test
 npm run lint       # oxlint
 npm run build      # tsc -b + vite build
 npm run preview    # chạy bản build/PWA
@@ -488,9 +490,9 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 ### 4.9 Giới hạn kiến trúc hiện tại
 
 - **Một store lớn** cho toàn bộ POS; chưa tách slice theo module.
-- **Chưa có router**; `App.tsx` chuyển trang bằng state, không deep-link/back button.
+- **[Cập nhật] Có hash router** (`src/app/router.tsx`, React Router v7 `createHashRouter`); các trang có URL `#/<page>`, deep-link/back-forward hoạt động. Không cần rewrite host khi deploy tĩnh.
 - **[Cập nhật] Có lớp API/service** (`src/api/*`, `src/services/orderService.ts`); POS lấy menu/bàn từ server, không gọi dữ liệu tĩnh trực tiếp (chỉ fallback seed).
-- **Chưa có ErrorBoundary**; lỗi render ngoài dự kiến có thể trắng màn hình.
+- **[Cập nhật] Có `ErrorBoundary`** (`src/components/ErrorBoundary.tsx`); lỗi render ngoài dự kiến hiển thị trang lỗi tiếng Việt thay vì trắng màn hình.
 - **Chưa có CI**; test/lint/build chạy local.
 - **[Cập nhật] E2E backend có trong repo** (`server/test/*.e2e-spec.ts`); E2E UI vẫn ngoài repo.
 - **[Cập nhật] Menu/bàn từ server**, có cache offline; sửa món trong `server/prisma/seed-data.ts`.
@@ -506,7 +508,7 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 | ID | Quyết định | Lý do | Hệ quả |
 | --- | --- | --- | --- |
 | ADR-01 | React + Vite + TypeScript + Tailwind, SPA tĩnh | POS nội bộ, không cần SSR; build nhẹ, deploy tĩnh | Không có SEO/server rendering; cần HTTPS cho PWA |
-| ADR-02 | Không dùng router ở v1 | Giảm phức tạp cho 2 màn hình thật | Khi thêm module phải bổ sung router/deep-link |
+| ADR-02 | Hash router (React Router v7, `createHashRouter`) | 11 trang; cần URL/deep-link, back/forward và sẵn route guard/code-split; hash không cần rewrite host khi deploy tĩnh | Mỗi trang có URL `#/<page>`; deep-link và back/forward hoạt động |
 | ADR-03 | Zustand persist localStorage | Đơn giản, offline, không cần backend | Một thiết bị/tab; cần thay lớp service khi có API |
 | ADR-04 | Tiền VND số nguyên, làm tròn từng bước | Tránh sai số floating point | Không dùng số thập phân cho tiền |
 | ADR-05 | Hoá đơn snapshot tên/giá | Sửa menu không làm sai lịch sử | `OrderLineSnapshot` là bắt buộc |
@@ -552,7 +554,7 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 ### 7.1 Điểm mạnh
 
 - **Domain rõ ràng:** types tách biệt, tiền/đơn hàng có snapshot, không trộn UI với nghiệp vụ.
-- **Test có giá trị:** 113 test tập trung vào tính tiền, store, tìm kiếm, luồng chính; không phải test hình thức.
+- **Test có giá trị:** 177 test tập trung vào tính tiền, store, tìm kiếm, routing, luồng chính; không phải test hình thức.
 - **Persistence được gia cố:** validate shape/version, cảnh báo lỗi ghi — hiếm dự án frontend nhỏ làm đủ.
 - **In hoá đơn thực dụng:** đã kiểm tra PDF thật, xử lý tên dài, không chỉ “CSS đẹp”.
 - **Responsive có chủ đích:** 4 kích thước, touch target, breakpoint menu hợp lý.
@@ -564,13 +566,13 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 
 **P0 — trước khi mở module mới:**
 
-1. **Router + deep-link.** Thêm React Router (hoặc route map) để mỗi module có URL, back/forward hoạt động.
+1. ~~**Router + deep-link.** Thêm React Router (hoặc route map) để mỗi module có URL, back/forward hoạt động.~~ ✅ Đã làm (2026-11-21): hash router `src/app/router.tsx`.
 2. **Tách store theo miền.** `pos`, `tables`, `reservations`, `staff`, `customers`, `settings`; tránh một store khổng lồ.
 3. **Lớp service/repository.** Component không gọi trực tiếp localStorage; định nghĩa interface để thay adapter local → HTTP.
-4. **ErrorBoundary.** Lỗi render không được làm trắng toàn app.
+4. ~~**ErrorBoundary.** Lỗi render không được làm trắng toàn app.~~ ✅ Đã làm (2026-11-21): `src/components/ErrorBoundary.tsx`.
 5. **CI.** Chạy lint + test + build trên mỗi PR.
 6. **E2E smoke trong repo.** Ít nhất luồng thêm món → thanh toán → in; QA hiện tại nằm ngoài repo.
-7. **Sửa “Xoá đơn”:** phải có xác nhận và reset toàn bộ đơn (bàn/giảm giá/ghi chú), không chỉ `cart`; hiện đơn sau có thể thừa hưởng dữ liệu cũ.
+7. ~~**Sửa “Xoá đơn”:** phải có xác nhận và reset toàn bộ đơn (bàn/giảm giá/ghi chú), không chỉ `cart`; hiện đơn sau có thể thừa hưởng dữ liệu cũ.~~ ✅ Đã làm (2026-11-21): `resetOrder` + `ConfirmModal`.
 
 **P1 — nên làm sớm:**
 
@@ -593,16 +595,16 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 | Rủi ro | Hậu quả | Giảm thiểu |
 | --- | --- | --- |
 | Thêm module vào store hiện tại | Store phình, khó test, tranh chấp state | Tách slice/service trước |
-| Không có router | Không deep-link, khó back, khó phân quyền theo route | Thêm router ở Phase 0 |
+| ~~Không có router~~ | Không deep-link, khó back, khó phân quyền theo route | ✅ Đã thêm hash router (2026-11-21) |
 | Dùng localStorage cho dữ liệu dùng chung | Mỗi máy một dữ liệu, xung đột | Backend + sync trước Bàn/Đặt bàn |
 | Không có auth | Ai cũng sửa được dữ liệu | Auth + role ở Phase 1 |
 | Không có CI/E2E | Regression lọt vào bản dùng thật | CI + smoke E2E |
-| Không có ErrorBoundary | Một lỗi nhỏ trắng cả app | Thêm ngay Phase 0 |
+| ~~Không có ErrorBoundary~~ | Một lỗi nhỏ trắng cả app | ✅ Đã thêm `ErrorBoundary` (2026-11-21) |
 | Ảnh stock | Không đúng món, vấn đề bản quyền | Thay ảnh thật trước khi dùng |
 
 ### 7.4 Kết luận review
 
-Đây là một **v1 frontend tốt, dùng được thật**, không phải prototype. Nền tảng domain/test/persistence đủ chắc để tiếp tục. Điểm yếu chính không nằm ở UI mà ở **kiến trúc mở rộng**: chưa có router, service layer, auth, CI và đồng bộ. Vì vậy fork tiếp theo nên dành một phase ngắn gia cố nền tảng trước khi thêm Bàn/Đặt bàn/Nhân viên.
+Đây là một **v1 frontend tốt, dùng được thật**, không phải prototype. Nền tảng domain/test/persistence đủ chắc để tiếp tục. Điểm yếu chính không nằm ở UI mà ở **kiến trúc mở rộng**: service layer, auth, CI và đồng bộ (hash router đã có từ 2026-11-21). Vì vậy fork tiếp theo nên dành một phase ngắn gia cố nền tảng trước khi thêm Bàn/Đặt bàn/Nhân viên.
 
 ---
 
@@ -620,15 +622,15 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 
 **Mục tiêu:** làm cho việc thêm module không phá v1.
 
-- Thêm router/deep-link; route table cho 11 trang.
+- ~~Thêm router/deep-link; route table cho 11 trang.~~ ✅ Đã làm (2026-11-21).
 - Tách `usePOSStore` thành slice hoặc feature store; giữ API tương thích.
 - Thêm `services/` + repository interface cho POS, menu, orders.
-- Thêm `ErrorBoundary` + trang lỗi.
+- ~~Thêm `ErrorBoundary` + trang lỗi.~~ ✅ Đã làm (2026-11-21).
 - Thêm CI (lint/test/build) và smoke E2E.
 - Thêm migration helper cho persist (chuẩn bị version 2).
 - Sửa các P1 nhỏ (global search, print scope, lazy ảnh).
 
-**Done khi:** POS vẫn 113 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
+**Done khi:** POS vẫn ≥177 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
 
 ### 8.3 Phase 1 — Nền tảng backend (backend-only) ✅
 
@@ -990,6 +992,7 @@ npm run preview
 | 2026-11-19 | Review độc lập; sửa PWA config, persist hỏng, cảnh báo lưu trữ, touch target |
 | 2026-11-19 | 113/113 test, lint/build pass; mở PR #1 |
 | 2026-11-19 | Viết `PROJECT.md` làm tài liệu gốc cho các fork |
+| 2026-11-21 | Gia cố nền tảng: hash router, ErrorBoundary, sửa "Xoá đơn" (177/177 test) |
 
 ---
 
@@ -1024,7 +1027,7 @@ npm run preview
 ## Phụ lục C — Ghi chú cho người viết tiếp
 
 - Nếu bạn đang đọc file này để bắt đầu một fork: **đừng đọc toàn bộ `src/` trước**. Đọc §0, §3, §4, §5, §6, §10; sau đó mở đúng file trong bảng §0.4.
-- Nếu bạn định thêm một trang mới: xem `APP_PAGES` trong `src/config.ts`, `PlaceholderPage`, và cách `App.tsx` chọn trang. Hiện chưa có router; hãy thêm router trước khi có từ 3 trang thật trở lên.
+- Nếu bạn định thêm một trang mới: thêm route vào `src/app/router.tsx` (hash router), và thêm mục vào `APP_PAGES` trong `src/config.ts` nếu trang cần xuất hiện trên sidebar.
 - Nếu bạn định thêm dữ liệu mới: đừng nhét vào `usePOSStore` nếu đó là dữ liệu dùng chung giữa các module. Tạo domain type + service + store riêng.
 - Nếu bạn định sửa công thức tiền: viết test trước, cập nhật `calc.test.ts`, kiểm tra lại hoá đơn đã lưu (snapshot) không bị ảnh hưởng.
 - Nếu bạn định sửa CSS in: kiểm tra lại PDF 80mm 1 trang, tên món dài, ghi chú dài, in lại từ lịch sử.

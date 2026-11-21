@@ -2,7 +2,7 @@
 
 Frontend POS cho nhà hàng/quán ăn: gọi món, giỏ hàng, giảm giá, thanh toán và in hoá đơn 80mm. Giao diện tiếng Việt, tiền tệ VND, tối ưu cho laptop tại quầy và tablet. Ứng dụng chạy hoàn toàn trên trình duyệt, lưu đơn nháp và lịch sử trên chính thiết bị, dùng được khi mất mạng sau lần tải đầu.
 
-> Backend, đăng nhập và đồng bộ nhiều máy sẽ được bổ sung ở giai đoạn sau. Hiện tại POS và trang Đơn hàng là hai màn hình dùng thật; các mục còn lại là placeholder có chủ đích.
+> Backend, đăng nhập và đồng bộ nhiều máy sẽ được bổ sung ở giai đoạn sau. Hiện tại POS, Đơn hàng và Thực đơn là ba màn hình dùng thật; các mục còn lại là placeholder có chủ đích.
 
 > **Tài liệu gốc cho mọi fork:** [PROJECT.md](PROJECT.md) — báo cáo dự án, kiến trúc, quyết định đã chốt, lộ trình Bàn/Đặt bàn/Nhân viên và quy trình lập kế hoạch. Đọc file này trước khi phát triển module mới.
 
@@ -30,7 +30,7 @@ npm install
 npm run dev
 ```
 
-Mở `http://localhost:5173`. Để thử trên tablet trong cùng mạng LAN:
+Mở `http://localhost:5173/#/pos`. App dùng hash router, mỗi trang có URL riêng: `#/pos`, `#/orders`, `#/menu`, `#/tables`, … Để thử trên tablet trong cùng mạng LAN:
 
 ```bash
 npm run dev -- --host
@@ -108,11 +108,13 @@ Khi dùng thật, thay từng tệp cùng tên bằng ảnh chụp món của qu
 
 ```text
 src/
+  app/router.tsx      hash router, route table, layout + layout context
   assets/menu/        ảnh món + CREDITS.md
   components/         layout, menu, order, modals, receipt, search, stats, ui
+    ErrorBoundary.tsx chặn lỗi render, trang lỗi tiếng Việt
   data/               menu.ts, tables.ts
   lib/                calc, format, search, id, menu-query, global-search
-  pages/              POSPage, OrdersPage, PlaceholderPage
+  pages/              POSPage, OrdersPage, MenuPage, PlaceholderPage
   store/              usePOSStore.ts
   config.ts           thông tin quán, tài khoản hiển thị, danh sách trang
   index.css           theme, animation, print CSS
@@ -127,13 +129,13 @@ public/               favicon và icon PWA
 - Chưa có backend, đăng nhập, phân quyền, đồng bộ nhiều thiết bị hay sao lưu tự động.
 - Khách hàng và Công nợ hiển thị “—” cho tới khi nối backend; app không tạo số liệu giả.
 - Chưa tích hợp máy in ESC/POS, QR ngân hàng hay máy quẹt thẻ.
-- Các trang Tổng quan, Bàn, Đặt bàn, Thực đơn, Khách hàng, Báo cáo, Chi phí, Nhân viên, Cài đặt là placeholder.
+- Các trang Tổng quan, Bàn, Đặt bàn, Khách hàng, Báo cáo, Chi phí, Nhân viên, Cài đặt là placeholder.
 - PWA cần HTTPS hoặc localhost. Safari/iPad có thể có khác biệt nhỏ về hộp thoại in và cách cài đặt.
 - Chưa hỗ trợ nhiều tab/thiết bị cùng lúc; dữ liệu chỉ nằm trên trình duyệt hiện tại.
 - Ảnh món là ảnh minh hoạ stock, cần thay bằng ảnh thật của quán.
 
 ## Kiểm thử
 
-Bộ test hiện có 113 test cho logic tính tiền, store, tìm kiếm, các luồng giỏ hàng/thanh toán/đơn nháp và các component chính. Test chạy trên jsdom với viewport 1440×900; kiểm tra giao diện thật được thực hiện thêm bằng trình duyệt ở các kích thước 1440×900, 1280×800, 1024×768 và 390×844. Ảnh tham chiếu: [desktop](docs/screenshots/pos-desktop.jpg), [1024×768](docs/screenshots/pos-1024.jpg), [mobile](docs/screenshots/pos-mobile.jpg).
+Bộ test hiện có 177 test cho logic tính tiền, store, tìm kiếm, routing, các luồng giỏ hàng/thanh toán/đơn nháp và các component chính. Test chạy trên jsdom với viewport 1440×900; kiểm tra giao diện thật được thực hiện thêm bằng trình duyệt ở các kích thước 1440×900, 1280×800, 1024×768 và 390×844. Ảnh tham chiếu: [desktop](docs/screenshots/pos-desktop.jpg), [1024×768](docs/screenshots/pos-1024.jpg), [mobile](docs/screenshots/pos-mobile.jpg).
 
 Thiết kế tham chiếu: [Restaurant POS Dashboard UI Design](https://dribbble.com/shots/27321876-Restaurant-POS-Dashboard-UI-Design) của Rexnor studio. Font Plus Jakarta Sans, icon Lucide.
