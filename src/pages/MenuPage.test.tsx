@@ -3,7 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Role } from '../api/types'
 import type { ServerMenuCategory } from '../api/types'
-import { deleteMenuItem, getCategories, getMenu } from '../api/menu'
+import {
+  createMenuItem,
+  deleteMenuItem,
+  getCategories,
+  getMenu,
+} from '../api/menu'
 import { useCatalogStore } from '../store/useCatalogStore'
 import { useAuthStore } from '../store/useAuthStore'
 import { ToastProvider } from '../components/ui/Toast'
@@ -13,6 +18,9 @@ vi.mock('../api/menu', () => ({
   getMenu: vi.fn(),
   getCategories: vi.fn(),
   deleteMenuItem: vi.fn(),
+  createMenuItem: vi.fn(),
+  updateMenuItem: vi.fn(),
+  uploadMenuItemImage: vi.fn(),
 }))
 
 const MENU: ServerMenuCategory[] = [
@@ -144,5 +152,36 @@ describe('MenuPage', () => {
     await waitFor(() => expect(deleteMenuItem).toHaveBeenCalledWith('m1'))
     expect(refresh).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(getMenu).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes the POS catalog after saving a new item', async () => {
+    const user = userEvent.setup()
+    setRole('OWNER')
+    vi.mocked(createMenuItem).mockResolvedValue({
+      id: 'new-1',
+      legacyId: null,
+      name: 'Cơm gà',
+      description: null,
+      price: 45000,
+      imageKey: null,
+      imageUrl: null,
+      available: true,
+      popular: false,
+      sortOrder: 0,
+    })
+    const refresh = vi
+      .spyOn(useCatalogStore.getState(), 'refresh')
+      .mockResolvedValue(undefined)
+
+    renderPage()
+
+    expect(await screen.findByText('Gà nướng')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Thêm món' }))
+    await user.type(screen.getByLabelText('Tên món'), 'Cơm gà')
+    await user.type(screen.getByLabelText('Giá bán'), '45000')
+    await user.click(screen.getByRole('button', { name: 'Lưu món' }))
+
+    await waitFor(() => expect(createMenuItem).toHaveBeenCalled())
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
   })
 })

@@ -342,12 +342,46 @@ describe('Menu items (e2e)', () => {
     await expect(access(secondPath)).resolves.toBeUndefined();
   });
 
-  it('deletes an item and records MENU_ITEM_DELETED audit', async () => {
+  it('writes no orphan file when uploading to an unknown item', async () => {
+    const owner = await login(OWNER);
+    const before = await uploadedFiles();
+
+    await owner
+      .post(`/api/v1/menu/items/${randomUUID()}/image`)
+      .attach('file', Buffer.from('orphan'), {
+        filename: 'orphan.webp',
+        contentType: 'image/webp',
+      })
+      .expect(404)
+      .expect((response) => {
+        expect(response.body.error.code).toBe('MENU_ITEM_NOT_FOUND');
+      });
+
+    expect(await uploadedFiles()).toEqual(before);
+  });
+
+  it('deletes an item, removes its image file, and records MENU_ITEM_DELETED audit', async () => {
     const owner = await login(OWNER);
     const created = await createItem(owner, { name: 'Món sẽ xoá' });
     const id = trackItem(created);
 
+    const upload = await owner
+      .post(`/api/v1/menu/items/${id}/image`)
+      .attach('file', Buffer.from('bytes'), {
+        filename: 'delete-me.webp',
+        contentType: 'image/webp',
+      })
+      .expect(200);
+    const storedPath = path.join(
+      uploadRoot(),
+      'menu',
+      path.basename(upload.body.data.imageUrl as string),
+    );
+    await expect(access(storedPath)).resolves.toBeUndefined();
+
     await owner.delete(`/api/v1/menu/items/${id}`).expect(204);
+
+    await expect(access(storedPath)).rejects.toThrow();
 
     const menu = await owner.get('/api/v1/menu').expect(200);
     const items = (

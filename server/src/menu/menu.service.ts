@@ -163,23 +163,22 @@ export class MenuService {
     actor: AuthenticatedUser,
     meta: MenuRequestMeta,
   ): Promise<MenuItemResponse> {
-    const existing = await this.findItemOrThrow(restaurantId, id);
+    let existing: MenuItem;
+    try {
+      existing = await this.findItemOrThrow(restaurantId, id);
+    } catch (error) {
+      // The upload interceptor already wrote the new file to disk before this
+      // call; drop it so a bad target id cannot leave orphaned files.
+      await this.removeUploadedFile(imageUrl);
+      throw error;
+    }
 
     const item = await this.prisma.menuItem.update({
       where: { id: existing.id },
       data: { imageUrl },
     });
 
-    if (existing.imageUrl?.startsWith('/uploads/menu/')) {
-      try {
-        await unlink(
-          path.join(menuUploadDir(), path.basename(existing.imageUrl)),
-        );
-      } catch {
-        // The stored file may already be gone; replacing the image still
-        // succeeds.
-      }
-    }
+    await this.removeUploadedFile(existing.imageUrl);
 
     await this.audit.record({
       restaurantId,
@@ -206,6 +205,8 @@ export class MenuService {
 
     await this.prisma.menuItem.delete({ where: { id: existing.id } });
 
+    await this.removeUploadedFile(existing.imageUrl);
+
     await this.audit.record({
       restaurantId,
       actorId: actor.id,
@@ -216,6 +217,15 @@ export class MenuService {
       ip: meta.ip,
       userAgent: meta.userAgent,
     });
+  }
+
+  private async removeUploadedFile(imageUrl: string | null): Promise<void> {
+    if (!imageUrl?.startsWith('/uploads/menu/')) return;
+    try {
+      await unlink(path.join(menuUploadDir(), path.basename(imageUrl)));
+    } catch {
+      // The stored file may already be gone; cleanup is best-effort.
+    }
   }
 
   private async findItemOrThrow(

@@ -65,6 +65,11 @@ export function MenuPage() {
     void fetchMenu()
   }, [fetchMenu])
 
+  const handleSaved = useCallback(() => {
+    void fetchMenu()
+    void useCatalogStore.getState().refresh()
+  }, [fetchMenu])
+
   const groups = useMemo(() => {
     const order = new Map(categories.map((category, index) => [category.id, index]))
     return [...menu].sort(
@@ -200,7 +205,7 @@ export function MenuPage() {
           categories={categories}
           item={editor.item}
           onClose={() => setEditor(null)}
-          onSaved={() => void fetchMenu()}
+          onSaved={handleSaved}
         />
       ) : null}
 
