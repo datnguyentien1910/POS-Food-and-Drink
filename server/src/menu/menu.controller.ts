@@ -1,12 +1,29 @@
-import { Controller, Get } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { SESSION_COOKIE } from '../auth/auth.constants.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import { Roles } from '../common/decorators/roles.decorator.js';
+import { clientIp, userAgent } from '../common/http/request.util.js';
+import { CreateMenuItemDto } from './dto/create-menu-item.dto.js';
+import { UpdateMenuItemDto } from './dto/update-menu-item.dto.js';
 import { MenuService } from './menu.service.js';
 import type {
   MenuCategoryResponse,
   MenuCategorySummary,
+  MenuItemResponse,
 } from './menu.service.js';
 
 @ApiTags('menu')
@@ -29,5 +46,50 @@ export class MenuController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<MenuCategorySummary[]> {
     return this.menuService.getCategories(user.restaurantId);
+  }
+
+  @Post('items')
+  @HttpCode(201)
+  @Roles('OWNER', 'MANAGER')
+  @ApiOperation({ summary: 'Thêm món' })
+  createItem(
+    @Body() dto: CreateMenuItemDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ): Promise<MenuItemResponse> {
+    return this.menuService.createItem(user.restaurantId, dto, user, {
+      ip: clientIp(request),
+      userAgent: userAgent(request),
+    });
+  }
+
+  @Patch('items/:id')
+  @Roles('OWNER', 'MANAGER')
+  @ApiOperation({ summary: 'Sửa món' })
+  updateItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateMenuItemDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ): Promise<MenuItemResponse> {
+    return this.menuService.updateItem(user.restaurantId, id, dto, user, {
+      ip: clientIp(request),
+      userAgent: userAgent(request),
+    });
+  }
+
+  @Delete('items/:id')
+  @HttpCode(204)
+  @Roles('OWNER', 'MANAGER')
+  @ApiOperation({ summary: 'Xoá món' })
+  deleteItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ): Promise<void> {
+    return this.menuService.deleteItem(user.restaurantId, id, user, {
+      ip: clientIp(request),
+      userAgent: userAgent(request),
+    });
   }
 }
