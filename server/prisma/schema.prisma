@@ -45,6 +45,9 @@ enum AuditAction {
   DEVICE_REVOKED
   ORDER_CREATED
   ORDER_VOIDED
+  MENU_ITEM_CREATED
+  MENU_ITEM_UPDATED
+  MENU_ITEM_DELETED
 }
 
 model Restaurant {
@@ -140,6 +143,7 @@ model MenuItem {
   description  String?
   price        Int
   imageKey     String?
+  imageUrl     String?
   available    Boolean     @default(true)
   popular      Boolean     @default(false)
   sortOrder    Int         @default(0)

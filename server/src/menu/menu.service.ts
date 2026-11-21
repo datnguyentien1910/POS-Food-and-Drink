@@ -8,6 +8,7 @@ export interface MenuItemResponse {
   description: string | null;
   price: number;
   imageKey: string | null;
+  imageUrl: string | null;
   available: boolean;
   popular: boolean;
   sortOrder: number;
@@ -52,6 +53,7 @@ export class MenuService {
         description: item.description,
         price: item.price,
         imageKey: item.imageKey,
+        imageUrl: item.imageUrl,
         available: item.available,
         popular: item.popular,
         sortOrder: item.sortOrder,
