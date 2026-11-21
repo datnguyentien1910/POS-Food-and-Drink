@@ -146,4 +146,39 @@ describe('OrderPanel', () => {
 
     expect(onCharge).toHaveBeenCalledTimes(1)
   })
+
+  it('asks before clearing the order and keeps it when cancelled', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().setTable('ban-5')
+    renderPanel()
+
+    await user.click(screen.getByRole('button', { name: 'Tùy chọn đơn' }))
+    await user.click(screen.getByRole('button', { name: 'Xoá đơn' }))
+
+    expect(await screen.findByText(/Xoá đơn hiện tại/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Huỷ' }))
+
+    expect(usePOSStore.getState().cart).not.toEqual([])
+    expect(usePOSStore.getState().tableId).toBe('ban-5')
+  })
+
+  it('resets cart, table, discount and note when clearing is confirmed', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().setDiscount({ type: 'percent', value: 10 })
+    usePOSStore.getState().setNote('Ít đá')
+    renderPanel()
+
+    await user.click(screen.getByRole('button', { name: 'Tùy chọn đơn' }))
+    await user.click(screen.getByRole('button', { name: 'Xoá đơn' }))
+    await screen.findByText(/Xoá đơn hiện tại/)
+    await user.click(screen.getByRole('button', { name: 'Xoá đơn' }))
+
+    expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().tableId).toBeNull()
+    expect(usePOSStore.getState().discount).toEqual({ type: 'amount', value: 0 })
+    expect(usePOSStore.getState().note).toBe('')
+  })
 })

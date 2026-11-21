@@ -56,7 +56,7 @@ interface POSState extends PersistedPOS {
   increment: (lineId: string) => void
   decrement: (lineId: string) => void
   removeItem: (lineId: string) => void
-  clearCart: () => void
+  resetOrder: () => void
   setTable: (tableId: string | null) => void
   setDiscount: (discount: Discount) => void
   setNote: (note: string) => void
@@ -361,7 +361,8 @@ export const usePOSStore = create<POSState>()(
         }))
       },
 
-      clearCart: () => set({ cart: [] }),
+      resetOrder: () =>
+        set({ cart: [], tableId: null, discount: { ...EMPTY_DISCOUNT }, note: '' }),
 
       setTable: (tableId) => set({ tableId }),
 

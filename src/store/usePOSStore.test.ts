@@ -53,16 +53,27 @@ describe('cart actions', () => {
     expect(usePOSStore.getState().cart).toEqual([])
   })
 
-  it('removes lines and clears the cart', () => {
+  it('removes lines from the cart', () => {
     usePOSStore.getState().addItem(chicken.id)
     usePOSStore.getState().addItem(coffee.id)
     const [first] = usePOSStore.getState().cart
 
     usePOSStore.getState().removeItem(first.lineId)
     expect(usePOSStore.getState().cart).toHaveLength(1)
+  })
 
-    usePOSStore.getState().clearCart()
+  it('resets cart, table, discount and note', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().setDiscount({ type: 'percent', value: 10 })
+    usePOSStore.getState().setNote('Ít đá')
+
+    usePOSStore.getState().resetOrder()
+
     expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().tableId).toBeNull()
+    expect(usePOSStore.getState().discount).toEqual({ type: 'amount', value: 0 })
+    expect(usePOSStore.getState().note).toBe('')
   })
 
   it('stores table, discount, and note', () => {

@@ -7,12 +7,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { RESTAURANT } from '../../config'
 import { getMenuItem } from '../../data/menu'
 import { calcTotals } from '../../lib/calc'
 import { formatVND } from '../../lib/format'
 import { usePOSStore } from '../../store/usePOSStore'
+import { ConfirmModal } from '../modals/ConfirmModal'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
@@ -43,8 +44,9 @@ export function OrderPanel({
   const increment = usePOSStore((state) => state.increment)
   const decrement = usePOSStore((state) => state.decrement)
   const removeItem = usePOSStore((state) => state.removeItem)
-  const clearCart = usePOSStore((state) => state.clearCart)
+  const resetOrder = usePOSStore((state) => state.resetOrder)
   const saveDraft = usePOSStore((state) => state.saveDraft)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const { push } = useToast()
 
   const totals = useMemo(
@@ -70,7 +72,12 @@ export function OrderPanel({
   }
 
   const handleClear = () => {
-    clearCart()
+    setConfirmOpen(true)
+  }
+
+  const confirmClear = () => {
+    resetOrder()
+    setConfirmOpen(false)
     push('Đã xoá đơn hiện tại', 'info')
   }
 
@@ -215,6 +222,16 @@ export function OrderPanel({
           </Button>
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmOpen}
+        title="Xoá đơn hiện tại?"
+        description="Toàn bộ món, bàn, giảm giá và ghi chú của đơn hiện tại sẽ bị xoá."
+        confirmLabel="Xoá đơn"
+        tone="danger"
+        onConfirm={confirmClear}
+        onClose={() => setConfirmOpen(false)}
+      />
     </section>
   )
 }
