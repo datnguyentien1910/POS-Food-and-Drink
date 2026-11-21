@@ -30,6 +30,10 @@ export class OrdersQueryDto {
   tableId?: string;
 
   @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(100)
   q?: string;

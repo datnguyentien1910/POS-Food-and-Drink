@@ -1,7 +1,10 @@
 import { X } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { PageId } from '../../config'
 import { cx } from '../../lib/cx'
+import { useCatalogStore } from '../../store/useCatalogStore'
+import { startSync } from '../../sync/worker'
+import { OfflineBanner } from '../sync/OfflineBanner'
 import { Sidebar } from './Sidebar'
 import { StorageWarning } from './StorageWarning'
 import { TopBar } from './TopBar'
@@ -24,6 +27,13 @@ export function AppShell({
   searchSlot,
 }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  useEffect(() => {
+    // Load the live catalog and start the queue worker once the shell mounts
+    // (i.e. as soon as a session exists).
+    void useCatalogStore.getState().refresh()
+    startSync()
+  }, [])
 
   return (
     <div className="flex min-h-dvh bg-bg text-ink">
@@ -78,6 +88,7 @@ export function AppShell({
           onNavigate={onNavigate}
           searchSlot={searchSlot}
         />
+        <OfflineBanner />
         <main className="min-w-0 flex-1 px-4 py-5 lg:px-7 lg:py-6">
           {children}
         </main>

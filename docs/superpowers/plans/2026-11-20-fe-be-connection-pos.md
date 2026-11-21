@@ -1,6 +1,6 @@
 # Kế hoạch kết nối Frontend ↔ Backend — module POS (offline-first)
 
-> **Trạng thái:** ĐỀ XUẤT — chờ chủ dự án duyệt trước khi FE agent / BE agent triển khai.
+> **Trạng thái:** ĐÃ CHỐT — chủ dự án đã duyệt 5 đề xuất (Q1–Q5, mục 13.2) ngày 2026-11-20.
 > **Ngày:** 2026-11-20
 > **Phạm vi:** chỉ **module POS** (bán hàng tại quầy). Các module khác để sau khi chủ dự án xác nhận.
 > **Tài liệu liên quan:**
@@ -102,14 +102,14 @@
 | D6 | Offline cho phép dùng tiếp nếu thiết bị **đã đăng nhập trước đó**; không lưu PIN/mật khẩu | Cân bằng an toàn và khả dụng; PIN chỉ xác thực online |
 | D7 | Mã đơn offline là **mã tạm**, không giả dạng mã chính thức | Không bịa số liệu vận hành |
 | D8 | Giữ **không router**; auth gate + state hiện có trong `App.tsx` | Giảm thay đổi, không thêm dependency |
-| D9 | Dev dùng **Vite proxy** `/api` → `http://localhost:3000` | Cookie same-origin, tránh cấu hình CORS/cookie phức tạp |
+| D9 | Dev dùng **Vite proxy** `/api` → `http://localhost:3001` | Cookie same-origin, tránh cấu hình CORS/cookie phức tạp |
 | D10 | Không thêm thư viện HTTP/state mới; dùng `fetch` + zustand sẵn có | Giữ dependency tối thiểu |
 
 ## 5. Hợp đồng API dùng cho POS
 
 ### 5.1 Quy ước chung
 
-- Base URL dev: `/api/v1` (Vite proxy → `http://localhost:3000`).
+- Base URL dev: `/api/v1` (Vite proxy → `http://localhost:3001`).
 - Mọi request gửi kèm cookie: `fetch(url, { credentials: 'include' })`.
 - Thành công: `{ "data": ..., "meta"?: ... }`.
 - Lỗi: `{ "error": { "code": "...", "message": "...", "details"?: ... } }`.
@@ -531,7 +531,7 @@ GET /auth/me (timeout 5s)
 | `src/data/menu.ts` | Chỉ còn `CATEGORIES` + map ảnh; `MENU_ITEMS` chuyển thành dữ liệu seed/fallback cho test hoặc xoá sau khi test cập nhật |
 | `src/data/tables.ts` | Bỏ mảng tĩnh; `tableName` nhận danh sách bàn từ catalog (hoặc snapshot `tableName` trên đơn), không đọc mảng module |
 | `src/lib/id.ts` | Giữ `makeId/makeLineId`; bỏ `nextOrderCode` sau migration |
-| `vite.config.ts` | Thêm `server.proxy: { '/api': 'http://localhost:3000' }` |
+| `vite.config.ts` | Thêm `server.proxy: { '/api': 'http://localhost:3001' }` |
 | Test liên quan | Cập nhật theo API/store mới; thêm test cho queue, auth, login, sync |
 
 ### 8.3 Hợp đồng nội bộ FE
@@ -737,12 +737,12 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 # Terminal 1 — backend (Postgres local đang chạy)
 cd server
 npm run start:dev
-# Terminal 2 — frontend, proxy /api → localhost:3000
+# Terminal 2 — frontend, proxy /api → localhost:3001
 npm run dev
 ```
 
 - Seed local: `owner@restodash.local / Owner@12345`, PIN `1234`; `manager@… / Manager@12345`, PIN `2345`; `cashier@… / Cashier@12345`, PIN `3456`. **Chỉ dùng khi phát triển.**
-- Swagger: `http://localhost:3000/api/docs`.
+- Swagger: `http://localhost:3001/api/docs`.
 - E2E backend dùng DB `restodash_test` (global setup tự migrate + seed).
 
 ### 12.4 Tiêu chí nghiệm thu POS
@@ -775,15 +775,17 @@ npm run dev
 | Mã đơn `padStart(3)` tràn khi >999 đơn/ngày | Thấp | Giữ nguyên; ghi follow-up |
 | Cookie thiết bị bị đánh cắp | Thấp | `httpOnly`, thu hồi thiết bị; ngoài phạm vi POS |
 
-### 13.2 Câu hỏi cần chủ dự án chốt trước P4
+### 13.2 Quyết định đã chốt (2026-11-20)
 
-| ID | Câu hỏi | Đề xuất |
+Chủ dự án đã duyệt toàn bộ đề xuất dưới đây; đây là ràng buộc bắt buộc cho cả hai kế hoạch triển khai.
+
+| ID | Quyết định | Hệ quả |
 | --- | --- | --- |
-| Q1 | Có thêm `expectedTotal` + `409 PRICE_CHANGED` vào backend không? | **Có** — bảo vệ tiền khi bán offline bằng giá cũ |
-| Q2 | Cho phép bán offline bằng phiên đã đăng nhập trước đó, không nhập lại PIN? | **Có** — đổi lại: máy POS đặt tại quầy, có khoá HĐH |
-| Q3 | Chặn đăng xuất khi còn đơn chưa đồng bộ? | **Có** — tránh sai thu ngân/audit; chỉ cho đăng xuất sau khi sync, hoặc sau khi quản lý đã xử lý/bỏ qua toàn bộ queue |
-| Q4 | Hoá đơn offline in mã tạm `OFF-…` kèm dòng "Chưa đồng bộ"? | **Có** — không giả mã chính thức |
-| Q5 | Lấy tên/địa chỉ/thuế suất quán từ server ngay phase này? | **Không** — giữ `RESTAURANT` hiện tại; thêm endpoint ở phase sau |
+| Q1 | **Có** thêm `expectedTotal` + `409 PRICE_CHANGED` | BE plan Task 3 bắt buộc; FE gửi `expectedTotal` mỗi lần tạo đơn |
+| Q2 | **Có** cho bán offline bằng phiên đã đăng nhập trước đó, không nhập lại PIN | FE cho `status='offline'` khi `lastUser` tồn tại; không lưu PIN/hash |
+| Q3 | **Có** chặn đăng xuất khi còn đơn chưa đồng bộ | FE chặn `logout` khi `queue.length > 0`; chỉ mở sau khi sync hoặc quản lý bỏ qua toàn bộ queue |
+| Q4 | **Có** hoá đơn offline in mã tạm `OFF-…` kèm dòng "Chưa đồng bộ" | FE `provisionalCode=true` cho tới khi sync; không sinh mã giả dạng `HD-…` |
+| Q5 | **Không** lấy tên/địa chỉ/thuế suất quán từ server giai đoạn này | FE giữ `RESTAURANT` hiện tại (thuế 8% khớp `taxRateBps=800`); ghi nợ `GET /restaurant` cho phase sau |
 
 ---
 
@@ -806,7 +808,7 @@ npm run dev
 ### Smoke test nhanh bằng curl (dev)
 
 ```bash
-BASE=http://localhost:3000/api/v1
+BASE=http://localhost:3001/api/v1
 curl -s -c /tmp/pos-cookies.txt -X POST "$BASE/auth/login" \
   -H 'Content-Type: application/json' \
   -d '{"email":"owner@restodash.local","password":"Owner@12345"}'

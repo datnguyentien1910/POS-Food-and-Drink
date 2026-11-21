@@ -83,6 +83,9 @@ export class OrdersService {
     if (query.tableId) {
       where.tableId = query.tableId;
     }
+    if (query.clientId) {
+      where.clientId = query.clientId;
+    }
     if (query.from || query.to) {
       where.createdAt = {
         ...(query.from ? { gte: new Date(query.from) } : {}),
@@ -263,6 +266,16 @@ export class OrdersService {
       dto.discount ?? null,
       restaurant.taxRateBps,
     );
+
+    // BE-3: an offline sale may have used a stale menu price. The client sends
+    // the total it charged; if the server total differs, refuse to write the
+    // order (before consuming a code or auditing) so a manager can reconcile.
+    if (dto.expectedTotal != null && dto.expectedTotal !== totals.total) {
+      throw new AppException(409, 'PRICE_CHANGED', 'Giá món đã thay đổi', {
+        expectedTotal: dto.expectedTotal,
+        actualTotal: totals.total,
+      });
+    }
 
     // 4. Payment: cash needs enough money, transfers/cards keep it null.
     const method = dto.payment.method;

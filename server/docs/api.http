@@ -78,6 +78,7 @@ Content-Type: application/json
 Idempotency-Key: demo-{{$guid}}
 
 {
+  "clientId": "{{$guid}}",
   "items": [
     {
       "menuItemId": "{{menu.response.body.$.data.categories[0].items[0].id}}",
@@ -91,6 +92,9 @@ Idempotency-Key: demo-{{$guid}}
 
 ### Danh sách đơn (lọc + phân trang)
 GET {{host}}/orders?page=1&limit=20
+
+### Tra đơn theo mã client (offline sync)
+GET {{host}}/orders?clientId={{createOrder.request.body.clientId}}
 
 ### Chi tiết một đơn
 GET {{host}}/orders/{{createOrder.response.body.$.data.id}}

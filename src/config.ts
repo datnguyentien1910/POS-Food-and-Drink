@@ -10,11 +10,7 @@ export const RESTAURANT = {
   tableCount: 12,
 } as const
 
-export const ACCOUNT = {
-  name: 'Ngọc Anh',
-  role: 'Quản lý',
-  initials: 'NA',
-} as const
+export const API_BASE = '/api/v1'
 
 export const APP_PAGES = [
   { id: 'overview', label: 'Tổng quan' },

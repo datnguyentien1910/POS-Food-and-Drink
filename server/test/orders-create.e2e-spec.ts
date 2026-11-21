@@ -145,6 +145,34 @@ describe('Order creation (e2e)', () => {
     });
   });
 
+  it('returns clientId and null when the client did not send one', async () => {
+    const agent = await login();
+    const clientId = randomUUID();
+
+    const tagged = await post(
+      agent,
+      'clientid-tagged',
+      orderPayload({
+        menuIds,
+        items: [{ legacyId: 'ga-nuong', qty: 1 }],
+        payment: { method: 'CASH', received: 200000 },
+        clientId,
+      }),
+    ).expect(201);
+    expect(tagged.body.data.clientId).toBe(clientId);
+
+    const plain = await post(
+      agent,
+      'clientid-plain',
+      orderPayload({
+        menuIds,
+        items: [{ legacyId: 'ga-nuong', qty: 1 }],
+        payment: { method: 'CASH', received: 200000 },
+      }),
+    ).expect(201);
+    expect(plain.body.data.clientId).toBeNull();
+  });
+
   it('requires the Idempotency-Key header', async () => {
     const agent = await login();
 
@@ -369,6 +397,84 @@ describe('Order creation (e2e)', () => {
         expect(response.body.error.code).toBe('IDEMPOTENCY_CONFLICT');
       });
 
+    expect(await prisma.order.count()).toBe(1);
+  });
+
+  it('accepts an order whose expectedTotal matches the server total', async () => {
+    const agent = await login();
+
+    const response = await post(agent, 'expected-ok', {
+      ...orderPayload({
+        menuIds,
+        items: [{ legacyId: 'ga-nuong', qty: 1 }],
+        payment: { method: 'CASH', received: 200000 },
+      }),
+      expectedTotal: 117720,
+    }).expect(201);
+
+    expect(response.body.data.total).toBe(117720);
+  });
+
+  it('rejects a stale expectedTotal without writing the order', async () => {
+    const agent = await login();
+
+    await post(agent, 'expected-stale', {
+      ...orderPayload({
+        menuIds,
+        items: [{ legacyId: 'ga-nuong', qty: 1 }],
+        payment: { method: 'CASH', received: 200000 },
+      }),
+      expectedTotal: 100000,
+    })
+      .expect(409)
+      .expect((response) => {
+        expect(response.body.error.code).toBe('PRICE_CHANGED');
+        expect(response.body.error.details).toEqual({
+          expectedTotal: 100000,
+          actualTotal: 117720,
+        });
+      });
+
+    expect(await prisma.order.count()).toBe(0);
+    expect(await prisma.orderCounter.count()).toBe(0);
+    expect(
+      await prisma.auditLog.count({ where: { action: 'ORDER_CREATED' } }),
+    ).toBe(0);
+    // A rejected business request must not leave a stray idempotency row.
+    expect(await prisma.idempotencyKey.count()).toBe(0);
+
+    // The rejected attempt must not consume an order code.
+    const next = await post(
+      agent,
+      'expected-next',
+      orderPayload({
+        menuIds,
+        items: [{ legacyId: 'ga-nuong', qty: 1 }],
+        payment: { method: 'CASH', received: 200000 },
+      }),
+    ).expect(201);
+    expect(next.body.data.code).toMatch(/-001$/);
+  });
+
+  it('lets a stale clientId retry at the server price with a new key', async () => {
+    const agent = await login();
+    const clientId = randomUUID();
+    const body = orderPayload({
+      menuIds,
+      items: [{ legacyId: 'ga-nuong', qty: 1 }],
+      payment: { method: 'CASH', received: 200000 },
+      clientId,
+    });
+
+    await post(agent, 'accept-price-1', {
+      ...body,
+      expectedTotal: 100000,
+    }).expect(409);
+
+    const accepted = await post(agent, 'accept-price-2', body).expect(201);
+
+    expect(accepted.body.data.total).toBe(117720);
+    expect(accepted.body.data.clientId).toBe(clientId);
     expect(await prisma.order.count()).toBe(1);
   });
 

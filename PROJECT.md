@@ -1,10 +1,19 @@
 # RestoDash POS — Báo cáo dự án & cẩm nang bàn giao
 
-> **Phiên bản:** 1.0 — 19/11/2026  
-> **Trạng thái:** Frontend POS v1 đã hoàn thành; PR [#1](https://github.com/datnguyentien1910/POS-Food-and-Drink/pull/1) đang mở.  
-> **Nhánh:** `feat/restodash-pos` → `main`  
-> **Phạm vi:** Frontend dùng thật tại quầy; backend, đăng nhập và đồng bộ nhiều thiết bị để giai đoạn sau.  
+> **Phiên bản:** 2.0 — 20/11/2026  
+> **Trạng thái:** Frontend POS v1 + tích hợp backend NestJS (menu/bàn từ API, đăng nhập PIN theo thiết bị, hàng đợi đơn offline, đồng bộ nền).  
+> **Nhánh:** `docs/fe-be-connection-plan` → `main`  
+> **Phạm vi:** POS dùng thật tại quầy, có backend. Các module Bàn/Đặt bàn/Khách hàng/Báo cáo/Nhân viên/Cài đặt vẫn là placeholder.  
 > **Vai trò tài liệu:** đây là **nguồn sự thật duy nhất** cho các fork. Đọc file này trước khi đọc code hoặc lập kế hoạch module mới.
+
+> **Cập nhật 20/11/2026 — tích hợp FE–BE.** Phần mô tả bên dưới viết cho bản frontend-only v1; các điểm đã đổi được đánh dấu **[Cập nhật]**. Nguồn chi tiết: `docs/superpowers/plans/2026-11-20-fe-be-connection-pos.md` (plan đã duyệt) và `docs/superpowers/reports/2026-11-20-fe-be-connection-pos-report.md` (báo cáo hoàn thành). Tóm tắt các thay đổi:
+>
+> - **API + auth:** có `src/api/*` (fetch client, envelope `{data}`, `ApiError`), `useAuthStore`, `LoginPage` (đăng ký thiết bị → PIN), auth gate ở `App.tsx`. Backend NestJS + PostgreSQL nằm trong `server/`.
+> - **Catalog từ server:** menu/bàn do `useCatalogStore` lấy từ API, cache lại cho offline. Dữ liệu tĩnh `src/data/*` chỉ còn là **fallback seed** cho máy hoàn toàn mới khi mất mạng (quyết định P2).
+> - **Bán hàng:** `completeOrder` tạo payload gửi server, kèm `expectedTotal` để chặn lệch giá (`409 PRICE_CHANGED`). Mã `HD-…` do server cấp; khi offline dùng mã tạm `OFF-…` + nhãn “Chưa đồng bộ”.
+> - **Offline-first:** `src/store/usePOSStore.ts` (persist **v2**) giữ hàng đợi `queue: SyncItem[]`; `src/sync/*` (worker, backoff, errors) đẩy đơn lên server FIFO, có backoff, pause khi 401, dead-letter, crash recovery, và xử lý xung đột giá.
+> - **Huỷ đơn:** synced → `POST /orders/:id/void` (chỉ OWNER/MANAGER); pending → huỷ local, không lên server.
+> - **Đồng bộ đa thiết bị:** mỗi đơn có `clientId` (idempotency key) nên không tạo trùng khi retry/crash. Chặn đăng xuất khi còn đơn chờ (Q3).
 
 ## Mục lục
 
@@ -42,14 +51,14 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | Hạng mục | Trạng thái |
 | --- | --- |
 | Màn hình POS | **Dùng thật** |
-| Màn hình Đơn hàng | **Dùng thật** (lịch sử local) |
+| Màn hình Đơn hàng | **Dùng thật** (lịch sử local + trạng thái đồng bộ) |
 | 9 màn hình còn lại | Placeholder có chủ đích |
-| Backend/API/đăng nhập/đồng bộ | **Chưa có** |
+| Backend/API/đăng nhập/đồng bộ | **[Cập nhật] Dùng thật** — NestJS + PostgreSQL trong `server/`; PIN theo thiết bị; hàng đợi đơn + sync nền |
 | Thanh toán ngân hàng/thẻ thật | **Chưa có** — chỉ ghi nhận phương thức |
 | Máy in ESC/POS | **Chưa có** — in qua hộp thoại trình duyệt |
-| Test | **113/113 pass**, 22 file |
-| Lint | `oxlint` sạch |
-| Build | Pass; PWA precache 30 entries (~1.64 MB) |
+| Test | **[Cập nhật] 150/150 pass** (root, 27 file) + server 57 unit / 75 e2e |
+| Lint | `oxlint` sạch (root); `eslint` sạch (server) |
+| Build | Pass; PWA precache 30 entries (~1.68 MB) |
 | QA giao diện | 1440×900, 1280×800, 1024×768, 390×844; touch 768×1024 |
 | Hoá đơn 80mm | PDF 1 trang, 227×567pt, không tràn ngang |
 
@@ -65,12 +74,16 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 
 | Muốn đổi | Sửa tại |
 | --- | --- |
-| Tên quán, địa chỉ, VAT, số bàn, thu ngân | `src/config.ts` |
-| Món, giá, danh mục, ảnh, nhãn phổ biến | `src/data/menu.ts`, `src/assets/menu/` |
-| Bàn và số chỗ | `src/data/tables.ts` |
+| Tên quán, địa chỉ, VAT, số bàn, thu ngân | `src/config.ts` (VAT cục bộ 8% — server có `taxRateBps` riêng) |
+| Món, giá, danh mục, ảnh, nhãn phổ biến | **[Cập nhật] Server seed:** `server/prisma/seed-data.ts`; fallback offline: `src/data/catalog-seed.ts` |
+| Bàn và số chỗ | **[Cập nhật] Server seed:** `server/prisma/seed-data.ts`; fallback: `src/data/catalog-seed.ts` |
+| Lớp gọi API, envelope, lỗi | `src/api/` |
+| Trạng thái đăng nhập, PIN, thiết bị | `src/store/useAuthStore.ts`, `src/pages/LoginPage.tsx` |
+| Catalog từ server + cache | `src/store/useCatalogStore.ts` |
+| Hàng đợi đơn offline + đồng bộ nền | `src/store/usePOSStore.ts`, `src/sync/`, `src/services/orderService.ts` |
 | Màu, font, breakpoint, animation, CSS in | `src/index.css` |
 | Công thức tiền | `src/lib/calc.ts` + `src/lib/calc.test.ts` |
-| Lưu trữ, hydrate, mã đơn | `src/store/usePOSStore.ts`, `src/lib/id.ts` |
+| Lưu trữ, hydrate, trạng thái đồng bộ | `src/store/usePOSStore.ts` |
 | Layout, sidebar, topbar | `src/components/layout/` |
 | Menu, tìm kiếm món | `src/components/menu/`, `src/lib/menu-query.ts` |
 | Giỏ hàng, panel đơn | `src/components/order/` |
@@ -79,6 +92,7 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | Tìm kiếm toàn cục | `src/components/search/GlobalSearch.tsx`, `src/lib/global-search.ts` |
 | Trang Đơn hàng | `src/pages/OrdersPage.tsx` |
 | PWA/manifest/precache | `vite.config.ts`, `public/` |
+| Backend API | `server/src/` |
 
 ---
 
@@ -107,9 +121,9 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 ### 1.4 Ngoài phạm vi v1 (có chủ đích)
 
-- Backend, API, cơ sở dữ liệu, đăng nhập thật, phân quyền.
-- Đồng bộ nhiều máy/trình duyệt, nhiều tab an toàn.
-- Quản lý kho, báo cáo doanh thu thật, đặt bàn, khách hàng, nhân viên.
+**[Cập nhật 20/11/2026]** Backend, API, cơ sở dữ liệu, đăng nhập thật và đồng bộ nhiều máy **đã được triển khai** (giai đoạn tích hợp FE–BE). Các mục sau vẫn ngoài phạm vi:
+
+- Quản lý kho, báo cáo doanh thu thật, đặt bàn, khách hàng, nhân viên (màn hình placeholder).
 - Thanh toán điện tử thật (QR ngân hàng, máy quẹt thẻ), tích hợp ESC/POS.
 - Đa ngôn ngữ, app mobile cho khách tự đặt món.
 - Sao lưu tự động, phục hồi sau mất thiết bị.
@@ -152,14 +166,16 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 ### 2.2 Chất lượng hiện tại
 
+**[Cập nhật 20/11/2026]**
+
 | Kiểm tra | Kết quả |
 | --- | --- |
-| `npm test` | 113 pass / 22 file |
-| `npm run lint` | Pass (`oxlint`) |
-| `npm run build` | Pass; TypeScript strict + Vite build |
+| `npm test` (root) | 150 pass / 27 file |
+| `npm run lint` (root) | Pass (`oxlint`) |
+| `npm run build` (root) | Pass; TypeScript strict + Vite build |
+| `server`: `lint`/`test`/`test:e2e`/`build` | Pass; 57 unit / 75 e2e |
 | PWA | `dist/sw.js`, `dist/manifest.webmanifest`, `dist/registerSW.js` |
-| Precache | 30 entries, 1643.50 KiB |
-| Bundle | JS ~321 KB (~96.5 KB gzip), CSS ~45.9 KB (~10.9 KB gzip) |
+| Precache | 30 entries, ~1.68 MiB |
 | QA desktop | 1440×900, 1280×800, 1024×768 |
 | QA mobile | 390×844 |
 | QA touch | 768×1024, `pointer: coarse` |
@@ -178,7 +194,7 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 **Không có trong repo:**
 
-- Backend, database, API contract đã chốt, auth, phân quyền.
+- ~~Backend, database, API contract đã chốt, auth, phân quyền.~~ **[Cập nhật] Đã có** trong `server/` (NestJS + PostgreSQL + Prisma), hợp đồng ở `docs/superpowers/plans/2026-11-20-fe-be-connection-pos.md` §5.
 - Dữ liệu bán hàng thật, ảnh món thật của quán.
 - Script QA Playwright nội bộ (nằm ngoài repo, chỉ dùng trên máy phát triển).
 - CI/CD, monitoring, error tracking.
@@ -196,6 +212,16 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 - PWA offline, manifest, icon, autoUpdate.
 - Responsive và touch target cho tablet.
 - In hoá đơn 80mm qua portal, CSS in riêng.
+
+**[Cập nhật 20/11/2026] Tích hợp FE–BE:**
+
+- API client có envelope/`ApiError`; Vite proxy `/api` → `localhost:3001`.
+- Đăng nhập: đăng ký thiết bị bằng mật khẩu → PIN theo thiết bị; auth gate; reload giữ phiên; 401 quay về login.
+- Catalog menu/bàn từ server, cache offline, chặn món `available:false`.
+- Bán online: tạo đơn server, mã `HD-…`, `expectedTotal` chặn lệch giá.
+- Offline-first: hàng đợi đơn (persist v2) + sync nền FIFO, backoff, pause khi 401, dead-letter, crash recovery, xử lý xung đột giá.
+- Huỷ đơn đúng quyền (OWNER/MANAGER) online và offline.
+- UI trạng thái đồng bộ: `SyncBadge`, `OfflineBanner`, `PendingOrdersDialog`; chặn đăng xuất khi còn đơn chờ.
 
 ---
 
@@ -288,7 +314,7 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 - Giao diện tiếng Việt; không có i18n động.
 - Tiền tệ VND, `Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 })`, hậu tố `₫`.
 - Ngày giờ dạng `HH:mm`, `DD/MM/YYYY`; tính theo múi giờ thiết bị.
-- Mã đơn `HD-YYYYMMDD-NNN`, tăng theo lịch sử local trong ngày.
+- Mã đơn `HD-YYYYMMDD-NNN` do **server** cấp khi sync; khi offline tạm dùng `OFF-XXXXXXXX` + nhãn “Chưa đồng bộ”, thay bằng mã server sau khi đồng bộ.
 
 ---
 
@@ -387,16 +413,17 @@ public/                 favicon, icon PWA
 
 ### 4.5 Store và persistence
 
-**Key:** `restodash-pos-v1`  
-**Version:** `1`
+**Key:** `restodash-pos-v1` (giữ nguyên key để migrate tại chỗ)  
+**Version:** `2` (**[Cập nhật]** — v1→v2 có migration tự động, thêm hàng đợi `queue`)
 
-**Persist các trường:** `cart`, `tableId`, `discount`, `note`, `drafts`, `history`.  
+**Persist các trường:** `cart`, `tableId`, `discount`, `note`, `drafts`, `history`, `queue`.  
 **Không persist:** UI state, `storageError`.
 
 **Cơ chế an toàn:**
 
-- `getItem` parse JSON, kiểm tra `version === 1`, validate toàn bộ cấu trúc bằng type guard.
-- Dữ liệu hỏng/sai shape/version lạ → trả `null`, hydrate mặc định, không crash.
+- `getItem` parse JSON, kiểm tra `version`, validate toàn bộ cấu trúc bằng type guard.
+- Dữ liệu hỏng/sai shape → trả `null`, hydrate mặc định, không crash.
+- **[Cập nhật]** v1→v2 migration: dữ liệu v1 được nâng cấp (thêm `queue: []`, `history` đánh dấu `syncState: 'synced'`).
 - `setItem` bắt lỗi quota/private mode; bật `storageError`.
 - `StorageWarning` hiện banner cố định khi `storageError = true`; tự tắt khi ghi thành công trở lại.
 - `partialize` chỉ ghi domain state, không ghi action.
@@ -408,9 +435,10 @@ public/                 favicon, icon PWA
 - `clearCart`: **hiện chỉ xoá `cart`**, giữ nguyên `tableId`, `discount`, `note`; nút “Xoá đơn” chưa có `ConfirmModal`. Đây là hạn chế đã biết — xem §7.2.
 - `saveDraft`: chỉ lưu khi giỏ có món; snapshot giỏ rồi làm trống đơn hiện tại.
 - `loadDraft`: nạp lại giỏ/bàn/giảm giá/ghi chú và xoá nháp khỏi danh sách.
-- `completeOrder`: snapshot món, tính totals, sinh mã, thêm vào đầu `history`, làm trống đơn.
+- `completeOrder`: **[Cập nhật]** snapshot món, tính totals, sinh `clientId`, ghi đơn local với mã tạm `OFF-…` (`syncState: 'pending'`), đẩy vào `queue` rồi kích hoạt sync nền. Mã `HD-…` từ server được áp vào khi sync xong.
+- **Sync:** `markItemInflight`, `setItemState`, `dropQueueItem`, `retryItem`, `enqueueVoid`, `voidLocalOrder`, `applyServerOrder` phục vụ worker.
 
-**Giới hạn:** một thiết bị, một tab. Mở nhiều tab có thể ghi đè lẫn nhau. Chưa có migration ngoài version 1.
+**Giới hạn:** một thiết bị, một tab. Mở nhiều tab có thể ghi đè lẫn nhau. Migration hiện hỗ trợ tới version 2.
 
 ### 4.6 Tính tiền
 
@@ -434,17 +462,21 @@ total         = taxable + tax
 - Tìm kiếm toàn cục giới hạn 5 món, 3 nháp, 4 hoá đơn; điều hướng bằng bàn phím.
 - `makeId`: `crypto.randomUUID()` nếu có, fallback timestamp + random.
 - `makeLineId`: `line-<uuid>`.
-- `nextOrderCode`: tìm số lớn nhất trong history cùng prefix ngày, cộng 1, pad 3.
+- **[Cập nhật]** `nextOrderCode` đã bị xoá: mã `HD-…` do server cấp qua `OrderResponse.code`; bản offline dùng `OFF-…` tạm thời.
 
 ### 4.8 Build, test, lint
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm test           # 113 test
+npm run dev        # http://localhost:5173, proxy /api → :3001
+npm test           # 150 test
 npm run lint       # oxlint
 npm run build      # tsc -b + vite build
 npm run preview    # chạy bản build/PWA
+
+# backend
+cd server && npm run start:dev      # http://localhost:3001, Swagger /api/docs
+cd server && npm test && npm run test:e2e && npm run lint && npm run build
 ```
 
 - Node yêu cầu: `^20.19.0` hoặc `>=22.12.0`.
@@ -457,13 +489,13 @@ npm run preview    # chạy bản build/PWA
 
 - **Một store lớn** cho toàn bộ POS; chưa tách slice theo module.
 - **Chưa có router**; `App.tsx` chuyển trang bằng state, không deep-link/back button.
-- **Chưa có lớp service/repository**; component gọi trực tiếp store và data tĩnh.
+- **[Cập nhật] Có lớp API/service** (`src/api/*`, `src/services/orderService.ts`); POS lấy menu/bàn từ server, không gọi dữ liệu tĩnh trực tiếp (chỉ fallback seed).
 - **Chưa có ErrorBoundary**; lỗi render ngoài dự kiến có thể trắng màn hình.
 - **Chưa có CI**; test/lint/build chạy local.
-- **Chưa có E2E tự động trong repo**; QA Playwright nằm ngoài repo.
-- **Menu tĩnh**; muốn đổi món phải sửa code/data và build lại.
-- **Một tab/một thiết bị**; chưa có khóa hay đồng bộ.
-- **Chưa có migration** khi schema thay đổi; mới dừng ở version 1.
+- **[Cập nhật] E2E backend có trong repo** (`server/test/*.e2e-spec.ts`); E2E UI vẫn ngoài repo.
+- **[Cập nhật] Menu/bàn từ server**, có cache offline; sửa món trong `server/prisma/seed-data.ts`.
+- **[Cập nhật] Nhiều thiết bị đồng bộ** qua `clientId`; chưa có khoá liên-tab (`navigator.locks` mới là thiết kế đơn giản hoá single-flight flag).
+- **[Cập nhật] Migration persist v1→v2** đã có test; version hiện tại 2.
 
 ---
 
@@ -489,6 +521,9 @@ npm run preview    # chạy bản build/PWA
 | ADR-14 | PostgreSQL 17 (Docker) + Prisma 7 | Quan hệ chặt (order/payment/audit), migration tường minh; adapter `@prisma/adapter-pg` | Cần Docker khi dev; không dùng NoSQL |
 | ADR-15 | Session cookie + `connect-pg-simple` | Đăng nhập email/mật khẩu đơn giản, thu hồi phiên ở DB | Cần bảng `session`; CSRF xử lý ở Phase 2 |
 | ADR-16 | PIN 4 số gắn thiết bị, không khoá sau nhập sai (D-12) | Thao tác nhanh tại quầy; rủi ro đoán PIN đã chấp nhận | Cần thiết bị đã đăng ký; không rate limit PIN ở Phase 1 |
+| ADR-17 | Offline-first cho đơn hàng: persist hàng đợi v2 + sync nền FIFO | Quán phải bán được khi mất mạng; không được mất/trùng đơn | `clientId` là idempotency key; pause khi 401; dead-letter cho lỗi 400/403/404 |
+| ADR-18 | Mã `HD-…` do server cấp, `OFF-…` chỉ là mã tạm | Đồng hồ máy lệch; mã/ngày nghiệp vụ phải do server quyết | Hoá đơn offline ghi “Chưa đồng bộ”; FE không tự sinh mã chính thức |
+| ADR-19 | FE dùng seed tĩnh `src/data/catalog-seed.ts` làm fallback | Máy hoàn toàn mới mở offline vẫn có menu/bàn để xem | Catalog live luôn ưu tiên hơn seed; seed chỉ dùng khi chưa có cache |
 
 ---
 
@@ -500,7 +535,8 @@ npm run preview    # chạy bản build/PWA
 | Tiền VND số nguyên, VAT sau giảm giá | Đúng kế toán, tránh sai số | `src/lib/calc.ts`, `calc.test.ts` |
 | Giảm giá không vượt tạm tính | Không âm tiền | `calcDiscount` |
 | Hoá đơn snapshot tên/giá | Sửa menu không làm sai lịch sử | `OrderLineSnapshot`, `completeOrder` |
-| Mã đơn không trùng trong ngày | Tra cứu/đối soát | `nextOrderCode`, `id.test.ts` |
+| Mã đơn không trùng | Tra cứu/đối soát | **[Cập nhật]** server cấp `HD-…`; `clientId` chống tạo trùng khi retry |
+| Không mất đơn offline | Doanh thu dùng thật | `usePOSStore` `queue`, `src/sync/worker.ts`, store tests |
 | Persist sai shape không crash | Không trắng màn hình | `isPersistedPOS`, store tests |
 | Lỗi ghi localStorage phải cảnh báo | Không mất đơn âm thầm | `StorageWarning`, store tests |
 | In 80mm 1 trang | Hoá đơn dùng thật | `index.css`, `ReceiptModal` |

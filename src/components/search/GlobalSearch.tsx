@@ -17,10 +17,11 @@ import {
   type ReactNode,
 } from 'react'
 import type { PageId } from '../../config'
-import { CATEGORIES, MENU_ITEMS } from '../../data/menu'
+import { CATEGORIES } from '../../data/menu'
 import { tableName } from '../../data/tables'
 import { formatVND } from '../../lib/format'
 import { searchEverything } from '../../lib/global-search'
+import { useCatalogStore } from '../../store/useCatalogStore'
 import { usePOSStore } from '../../store/usePOSStore'
 import type { OrderRecord } from '../../types'
 import { useToast } from '../ui/toast-context'
@@ -44,6 +45,7 @@ interface ResultGroup {
 }
 
 export function GlobalSearch({ onNavigate, onOpenReceipt }: GlobalSearchProps) {
+  const catalogItems = useCatalogStore((state) => state.items)
   const drafts = usePOSStore((state) => state.drafts)
   const history = usePOSStore((state) => state.history)
   const addItem = usePOSStore((state) => state.addItem)
@@ -59,8 +61,8 @@ export function GlobalSearch({ onNavigate, onOpenReceipt }: GlobalSearchProps) {
   const listboxId = useId()
 
   const results = useMemo(
-    () => searchEverything(query, { menu: MENU_ITEMS, drafts, history }),
-    [query, drafts, history],
+    () => searchEverything(query, { menu: catalogItems, drafts, history }),
+    [query, catalogItems, drafts, history],
   )
 
   const closeSearch = useCallback(() => {

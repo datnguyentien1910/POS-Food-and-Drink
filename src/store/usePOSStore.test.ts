@@ -16,6 +16,7 @@ function resetStore() {
     note: '',
     drafts: [],
     history: [],
+    queue: [],
     storageError: false,
   })
 }
@@ -177,10 +178,19 @@ describe('completeOrder', () => {
         qty: 2,
       },
     ])
-    expect(order!.code).toMatch(/^HD-\d{8}-001$/)
+    expect(order!.code).toMatch(/^OFF-[0-9A-F]{8}$/)
+    expect(order!.provisionalCode).toBe(true)
+    expect(order!.syncState).toBe('pending')
+    expect(order!.clientId).toBe(order!.id)
 
     const state = usePOSStore.getState()
     expect(state.history[0].id).toBe(order!.id)
+    expect(state.queue).toHaveLength(1)
+    expect(state.queue[0]).toMatchObject({
+      id: order!.id,
+      kind: 'CREATE_ORDER',
+      state: 'pending',
+    })
     expect(state.cart).toEqual([])
     expect(state.tableId).toBeNull()
     expect(state.note).toBe('')
@@ -293,5 +303,72 @@ describe('persistence', () => {
     setItem.mockRestore()
     usePOSStore.getState().addItem(coffee.id)
     expect(usePOSStore.getState().storageError).toBe(false)
+  })
+})
+
+describe('offline queue', () => {
+  beforeEach(resetStore)
+
+  it('migrates v1 history to legacy local orders and keeps the cart', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [{ lineId: 'l1', menuItemId: 'ga-nuong', qty: 2 }],
+          tableId: 'ban-3',
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [
+            {
+              id: 'HD-20260101-001',
+              code: 'HD-20260101-001',
+              tableId: null,
+              tableName: 'Mang đi',
+              items: [
+                {
+                  menuItemId: 'ga-nuong',
+                  name: 'Gà nướng',
+                  unitPrice: 109000,
+                  qty: 1,
+                },
+              ],
+              subtotal: 109000,
+              discountAmount: 0,
+              tax: 8720,
+              total: 117720,
+              method: 'cash',
+              received: 120000,
+              change: 2280,
+              note: '',
+              createdAt: 1767225600000,
+              cashier: 'Thu ngân',
+            },
+          ],
+        },
+        version: 1,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    const state = usePOSStore.getState()
+    expect(state.queue).toEqual([])
+    expect(state.history[0].syncState).toBe('legacy')
+    expect(state.history[0].clientId).toBe('HD-20260101-001')
+    expect(state.cart[0].unitPrice).toBe(109000)
+    expect(state.cart[0].name).toBe('Gà nướng')
+  })
+
+  it('voids an unsynced order locally and drops its queue item', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    const order = usePOSStore.getState().completeOrder({ method: 'cash' })!
+
+    usePOSStore.getState().voidLocalOrder(order.id, 'Khách đổi ý')
+
+    const state = usePOSStore.getState()
+    expect(state.queue).toEqual([])
+    expect(state.history[0].voided).toBe(true)
+    expect(state.history[0].syncState).toBe('voided')
   })
 })

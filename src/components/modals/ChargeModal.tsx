@@ -51,7 +51,7 @@ export function ChargeModal({
 
   const totals = calcTotals(
     cart.map((line) => ({
-      unitPrice: getMenuItem(line.menuItemId)?.price ?? 0,
+      unitPrice: line.unitPrice ?? getMenuItem(line.menuItemId)?.price ?? 0,
       qty: line.qty,
     })),
     discount,
@@ -84,6 +84,7 @@ export function ChargeModal({
 
     const order = completeOrder({
       method,
+      expectedTotal: totals.total,
       ...(method === 'cash'
         ? { received: receivedNumber, change }
         : {}),
@@ -132,7 +133,10 @@ export function ChargeModal({
           <p className="mt-3 text-base font-bold text-ink">
             Thanh toán thành công
           </p>
-          <p className="mt-1 text-xs text-muted">Đơn {completed.code}</p>
+          <p className="mt-1 text-xs text-muted">
+            Đơn {completed.code}
+            {completed.provisionalCode ? ' · Chưa đồng bộ' : ''}
+          </p>
 
           <div className="mt-4 space-y-1.5 rounded-xl bg-bg p-3.5 text-left text-xs">
             <div className="flex items-center justify-between gap-2">

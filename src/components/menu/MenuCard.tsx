@@ -12,8 +12,10 @@ interface MenuCardProps {
 
 export function MenuCard({ item, onAdd }: MenuCardProps) {
   const [pulse, setPulse] = useState(false)
+  const unavailable = item.available === false
 
   const handleAdd = () => {
+    if (unavailable) return
     onAdd(item.id)
     setPulse(true)
     window.setTimeout(() => setPulse(false), 320)
@@ -26,11 +28,18 @@ export function MenuCard({ item, onAdd }: MenuCardProps) {
           src={item.image}
           alt={item.name}
           decoding="async"
-          className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+          className={`size-full object-cover transition-transform duration-300 group-hover:scale-[1.04] ${
+            unavailable ? 'opacity-50 grayscale' : ''
+          }`}
         />
         {item.popular ? (
           <Badge tone="gold" className="absolute top-2 left-2 shadow-sm">
             Phổ biến
+          </Badge>
+        ) : null}
+        {unavailable ? (
+          <Badge tone="neutral" className="absolute top-2 right-2 shadow-sm">
+            Hết hàng
           </Badge>
         ) : null}
       </div>
@@ -50,9 +59,10 @@ export function MenuCard({ item, onAdd }: MenuCardProps) {
           <button
             type="button"
             aria-label={`Thêm ${item.name}`}
+            disabled={unavailable}
             onClick={handleAdd}
             className={cx(
-              'touch-target grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-primary transition-colors duration-150 hover:bg-primary hover:text-white active:scale-90 [@media(pointer:coarse)]:size-11',
+              'touch-target grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-primary transition-colors duration-150 hover:bg-primary hover:text-white active:scale-90 disabled:cursor-not-allowed disabled:bg-line/60 disabled:text-faint disabled:hover:bg-line/60 [@media(pointer:coarse)]:size-11',
               pulse && 'animate-pop',
             )}
           >

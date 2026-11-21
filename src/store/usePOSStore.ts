@@ -1,21 +1,33 @@
 import { create } from 'zustand'
 import { persist, type PersistStorage } from 'zustand/middleware'
 import { RESTAURANT } from '../config'
-import { getMenuItem } from '../data/menu'
-import { tableName } from '../data/tables'
+import { resolveMenuItem, resolveTable, resolveTableName } from '../lib/catalog-lookup'
 import { calcTotals } from '../lib/calc'
-import { makeId, makeLineId, nextOrderCode } from '../lib/id'
+import { makeId, makeLineId } from '../lib/id'
+import { nextDelay } from '../sync/backoff'
+import { useAuthStore } from './useAuthStore'
 import type {
   CartLine,
+  CreateOrderPayload,
   Discount,
   Draft,
+  LocalOrder,
   OrderLineSnapshot,
   OrderRecord,
   PaymentMethod,
+  ServerPaymentMethod,
+  SyncError,
+  SyncItem,
+  SyncState as OrderSyncState,
 } from '../types'
 
 const STORAGE_KEY = 'restodash-pos-v1'
 const EMPTY_DISCOUNT: Discount = { type: 'amount', value: 0 }
+
+/** Local orders kept in history; only synced/legacy ones are pruned. */
+const HISTORY_LIMIT = 500
+/** Warn (in the UI) when the pending queue grows beyond this. */
+export const QUEUE_WARN_THRESHOLD = 100
 
 interface PersistedPOS {
   cart: CartLine[]
@@ -23,7 +35,19 @@ interface PersistedPOS {
   discount: Discount
   note: string
   drafts: Draft[]
+  history: LocalOrder[]
+  queue: SyncItem[]
+}
+
+type PersistedPOSv1 = Omit<PersistedPOS, 'history' | 'queue'> & {
   history: OrderRecord[]
+}
+
+interface CompleteOrderInput {
+  method: PaymentMethod
+  received?: number
+  change?: number
+  expectedTotal?: number
 }
 
 interface POSState extends PersistedPOS {
@@ -39,14 +63,21 @@ interface POSState extends PersistedPOS {
   saveDraft: () => void
   loadDraft: (draftId: string) => void
   deleteDraft: (draftId: string) => void
-  completeOrder: (input: {
-    method: PaymentMethod
-    received?: number
-    change?: number
-  }) => OrderRecord | null
+  completeOrder: (input: CompleteOrderInput) => LocalOrder | null
+  markItemInflight: (id: string) => void
+  setItemBackoff: (id: string, attempts: number, error: SyncError) => void
+  setItemState: (id: string, state: OrderSyncState, error?: SyncError) => void
+  dropQueueItem: (id: string) => void
+  retryItem: (id: string) => void
+  dismissItem: (id: string) => void
+  acceptServerPrice: (id: string) => void
+  applyServerOrder: (clientId: string, order: OrderRecord) => void
+  enqueueVoid: (serverId: string, reason: string) => void
+  markVoided: (serverId: string) => void
+  voidLocalOrder: (clientId: string, reason: string) => void
 }
 
-const emptyOrder = (): Omit<PersistedPOS, 'drafts' | 'history'> => ({
+const emptyOrder = (): Omit<PersistedPOS, 'drafts' | 'history' | 'queue'> => ({
   cart: [],
   tableId: null,
   discount: { ...EMPTY_DISCOUNT },
@@ -64,7 +95,9 @@ const isCartLine = (value: unknown): value is CartLine =>
   typeof value.lineId === 'string' &&
   typeof value.menuItemId === 'string' &&
   isFiniteNumber(value.qty) &&
-  value.qty > 0
+  value.qty > 0 &&
+  (value.unitPrice === undefined || isFiniteNumber(value.unitPrice)) &&
+  (value.name === undefined || typeof value.name === 'string')
 
 const isDiscount = (value: unknown): value is Discount =>
   isRecord(value) &&
@@ -111,6 +144,17 @@ const isOrder = (value: unknown): value is OrderRecord =>
   isFiniteNumber(value.createdAt) &&
   typeof value.cashier === 'string'
 
+const isQueueItem = (value: unknown): value is SyncItem =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  (value.kind === 'CREATE_ORDER' || value.kind === 'VOID_ORDER') &&
+  typeof value.state === 'string' &&
+  isRecord(value.payload) &&
+  typeof value.idempotencyKey === 'string' &&
+  isFiniteNumber(value.attempts) &&
+  isFiniteNumber(value.nextAttemptAt) &&
+  isFiniteNumber(value.createdAt)
+
 const isPersistedPOS = (value: unknown): value is PersistedPOS =>
   isRecord(value) &&
   Array.isArray(value.cart) &&
@@ -121,7 +165,42 @@ const isPersistedPOS = (value: unknown): value is PersistedPOS =>
   Array.isArray(value.drafts) &&
   value.drafts.every(isDraft) &&
   Array.isArray(value.history) &&
-  value.history.every(isOrder)
+  value.history.every(isOrder) &&
+  Array.isArray(value.queue) &&
+  value.queue.every(isQueueItem)
+
+/** Upgrades a v1 snapshot: old orders become read-only `legacy` rows. */
+function migrateV1(from: PersistedPOSv1): PersistedPOS {
+  const history: LocalOrder[] = from.history.map((order) => ({
+    ...order,
+    clientId: order.id,
+    syncState: 'legacy',
+    provisionalCode: false,
+    cashierId: '',
+  }))
+
+  const cart = from.cart.flatMap((line) => {
+    const item = resolveMenuItem(line.menuItemId)
+    if (!item) return []
+    return [
+      {
+        ...line,
+        unitPrice: line.unitPrice ?? item.price,
+        name: line.name ?? item.name,
+      },
+    ]
+  })
+
+  return {
+    cart,
+    tableId: from.tableId,
+    discount: from.discount,
+    note: from.note,
+    drafts: from.drafts,
+    history,
+    queue: [],
+  }
+}
 
 let reportStorageFailure: ((failed: boolean) => void) | null = null
 
@@ -132,19 +211,33 @@ const safeStorage: PersistStorage<PersistedPOS> = {
       if (!raw) return null
 
       const parsed = JSON.parse(raw) as unknown
+      if (!isRecord(parsed) || !isRecord(parsed.state)) return null
 
-      if (
-        !isRecord(parsed) ||
-        parsed.version !== 1 ||
-        !isPersistedPOS(parsed.state)
-      ) {
-        return null
+      if (parsed.version === 2 && isPersistedPOS(parsed.state)) {
+        return { state: parsed.state, version: 2 }
       }
 
-      return {
-        state: parsed.state,
-        version: parsed.version,
+      if (parsed.version === 1 && isRecord(parsed.state)) {
+        const legacy = parsed.state
+        if (
+          Array.isArray(legacy.cart) &&
+          legacy.cart.every(isCartLine) &&
+          (legacy.tableId === null || typeof legacy.tableId === 'string') &&
+          isDiscount(legacy.discount) &&
+          typeof legacy.note === 'string' &&
+          Array.isArray(legacy.drafts) &&
+          legacy.drafts.every(isDraft) &&
+          Array.isArray(legacy.history) &&
+          legacy.history.every(isOrder)
+        ) {
+          return {
+            state: migrateV1(legacy as unknown as PersistedPOSv1),
+            version: 2,
+          }
+        }
       }
+
+      return null
     } catch {
       return null
     }
@@ -167,16 +260,52 @@ const safeStorage: PersistStorage<PersistedPOS> = {
   },
 }
 
+const SERVER_METHOD: Record<PaymentMethod, ServerPaymentMethod> = {
+  cash: 'CASH',
+  transfer: 'TRANSFER',
+  card: 'CARD',
+}
+
+/** Temporary offline code, never confused with the server's `HD-…` range. */
+function provisionalCode(clientId: string): string {
+  return `OFF-${clientId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+}
+
+function pruneHistory(history: LocalOrder[]): LocalOrder[] {
+  if (history.length <= HISTORY_LIMIT) return history
+  const keep: LocalOrder[] = []
+  let prunable = history.length - HISTORY_LIMIT
+  for (const order of history) {
+    const locked =
+      order.syncState !== 'synced' && order.syncState !== 'legacy'
+    if (!locked && prunable > 0) {
+      prunable -= 1
+      continue
+    }
+    keep.push(order)
+  }
+  return keep
+}
+
+/** Kicks off a background sync without creating an import cycle. */
+function triggerSync(): void {
+  void import('../sync/worker')
+    .then((worker) => worker.flush())
+    .catch(() => undefined)
+}
+
 export const usePOSStore = create<POSState>()(
   persist<POSState, [], [], PersistedPOS>(
     (set, get) => ({
       ...emptyOrder(),
       drafts: [],
       history: [],
+      queue: [],
       storageError: false,
 
       addItem: (menuItemId) => {
-        if (!getMenuItem(menuItemId)) return
+        const item = resolveMenuItem(menuItemId)
+        if (!item) return
 
         set((state) => {
           const existing = state.cart.find(
@@ -196,7 +325,13 @@ export const usePOSStore = create<POSState>()(
           return {
             cart: [
               ...state.cart,
-              { lineId: makeLineId(), menuItemId, qty: 1 },
+              {
+                lineId: makeLineId(),
+                menuItemId,
+                qty: 1,
+                unitPrice: item.price,
+                name: item.name,
+              },
             ],
           }
         })
@@ -273,63 +408,265 @@ export const usePOSStore = create<POSState>()(
         }))
       },
 
-      completeOrder: ({ method, received, change }) => {
+      completeOrder: ({ method, received, change, expectedTotal }) => {
         const state = get()
         if (state.cart.length === 0) return null
 
-        const items: OrderLineSnapshot[] = state.cart.flatMap((line) => {
-          const menuItem = getMenuItem(line.menuItemId)
-          if (!menuItem) return []
+        const items: OrderLineSnapshot[] = []
+        const payloadItems: CreateOrderPayload['items'] = []
 
-          return [
-            {
-              menuItemId: menuItem.id,
-              name: menuItem.name,
-              unitPrice: menuItem.price,
-              qty: line.qty,
-            },
-          ]
-        })
+        for (const line of state.cart) {
+          const item = resolveMenuItem(line.menuItemId)
+          const unitPrice = line.unitPrice ?? item?.price ?? 0
+          const name = line.name ?? item?.name ?? 'Món'
+          items.push({ menuItemId: line.menuItemId, name, unitPrice, qty: line.qty })
+          payloadItems.push({
+            menuItemId: item?.serverId ?? line.menuItemId,
+            qty: line.qty,
+          })
+        }
 
         if (items.length === 0) return null
 
         const totals = calcTotals(
-          items.map((item) => ({
-            unitPrice: item.unitPrice,
-            qty: item.qty,
-          })),
+          items.map((item) => ({ unitPrice: item.unitPrice, qty: item.qty })),
           state.discount,
           RESTAURANT.taxRate,
         )
 
-        const now = new Date()
-        const order: OrderRecord = {
-          id: makeId(),
-          code: nextOrderCode(state.history, now),
+        const authUser = useAuthStore.getState().user
+        const clientId = makeId()
+        const now = Date.now()
+        const table = resolveTable(state.tableId)
+        const expected = expectedTotal ?? totals.total
+
+        const order: LocalOrder = {
+          id: clientId,
+          clientId,
+          code: provisionalCode(clientId),
+          provisionalCode: true,
+          syncState: 'pending',
           tableId: state.tableId,
-          tableName: tableName(state.tableId),
+          tableName: resolveTableName(state.tableId),
           items,
           ...totals,
           method,
           note: state.note,
-          createdAt: now.getTime(),
-          cashier: RESTAURANT.cashier,
+          createdAt: now,
+          cashier: authUser?.name ?? RESTAURANT.cashier,
+          cashierId: authUser?.id ?? '',
           ...(method === 'cash' && received !== undefined
             ? { received, change }
             : {}),
         }
 
+        const payload: CreateOrderPayload = {
+          clientId,
+          items: payloadItems,
+          payment: {
+            method: SERVER_METHOD[method],
+            ...(method === 'cash' && received !== undefined ? { received } : {}),
+          },
+          expectedTotal: expected,
+          ...(table?.serverId ? { tableId: table.serverId } : {}),
+          ...(state.note ? { note: state.note } : {}),
+          ...(state.discount.value > 0
+            ? {
+                discount: {
+                  type: state.discount.type === 'percent' ? 'PERCENT' : 'AMOUNT',
+                  value: state.discount.value,
+                },
+              }
+            : {}),
+        }
+
+        const syncItem: SyncItem = {
+          id: clientId,
+          kind: 'CREATE_ORDER',
+          state: 'pending',
+          payload,
+          idempotencyKey: clientId,
+          expectedTotal: expected,
+          attempts: 0,
+          nextAttemptAt: 0,
+          createdAt: now,
+        }
+
         set({
-          history: [order, ...state.history],
+          history: pruneHistory([order, ...state.history]),
+          queue: [...state.queue, syncItem],
           ...emptyOrder(),
         })
 
+        triggerSync()
         return order
+      },
+
+      markItemInflight: (id) => {
+        set((state) => ({
+          queue: state.queue.map((item) =>
+            item.id === id ? { ...item, state: 'inflight' } : item,
+          ),
+        }))
+      },
+
+      setItemBackoff: (id, attempts, error) => {
+        set((state) => ({
+          queue: state.queue.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  state: 'pending',
+                  attempts,
+                  nextAttemptAt: Date.now() + nextDelay(attempts),
+                  lastError: error,
+                }
+              : item,
+          ),
+        }))
+      },
+
+      setItemState: (id, state, error) => {
+        set((prev) => ({
+          queue: prev.queue.map((item) =>
+            item.id === id
+              ? { ...item, state, ...(error ? { lastError: error } : {}) }
+              : item,
+          ),
+        }))
+      },
+
+      dropQueueItem: (id) => {
+        set((state) => ({
+          queue: state.queue.filter((item) => item.id !== id),
+        }))
+      },
+
+      retryItem: (id) => {
+        set((state) => ({
+          queue: state.queue.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  state: 'pending',
+                  attempts: 0,
+                  nextAttemptAt: 0,
+                  lastError: undefined,
+                }
+              : item,
+          ),
+        }))
+        triggerSync()
+      },
+
+      dismissItem: (id) => {
+        set((state) => ({
+          queue: state.queue.filter((item) => item.id !== id),
+        }))
+      },
+
+      acceptServerPrice: (id) => {
+        set((state) => ({
+          queue: state.queue.map((item) => {
+            if (item.id !== id || item.kind !== 'CREATE_ORDER') return item
+            const payload = {
+              ...(item.payload as CreateOrderPayload),
+            }
+            delete payload.expectedTotal
+            return {
+              ...item,
+              payload,
+              expectedTotal: undefined,
+              // The payload changed, so the idempotency key must change too.
+              idempotencyKey: makeId(),
+              state: 'pending' as const,
+              attempts: 0,
+              nextAttemptAt: 0,
+              lastError: undefined,
+            }
+          }),
+        }))
+        triggerSync()
+      },
+
+      applyServerOrder: (clientId, order) => {
+        set((state) => ({
+          history: state.history.map((local) =>
+            local.id === clientId
+              ? {
+                  ...order,
+                  id: local.id,
+                  clientId,
+                  cashierId: local.cashierId,
+                  // Keep the real sale time; the server time is the sync time.
+                  createdAt: local.createdAt,
+                  syncState: 'synced',
+                  provisionalCode: false,
+                }
+              : local,
+          ),
+          queue: state.queue.filter((item) => item.id !== clientId),
+        }))
+      },
+
+      enqueueVoid: (serverId, reason) => {
+        set((state) => {
+          if (state.queue.some((item) => item.id === serverId)) return state
+          const item: SyncItem = {
+            id: serverId,
+            kind: 'VOID_ORDER',
+            state: 'pending',
+            payload: { orderId: serverId, reason },
+            idempotencyKey: makeId(),
+            attempts: 0,
+            nextAttemptAt: 0,
+            createdAt: Date.now(),
+          }
+          return {
+            queue: [...state.queue, item],
+            history: state.history.map((order) =>
+              order.serverId === serverId
+                ? { ...order, voided: true, voidReason: reason }
+                : order,
+            ),
+          }
+        })
+        triggerSync()
+      },
+
+      markVoided: (serverId) => {
+        set((state) => ({
+          queue: state.queue.filter((item) => item.id !== serverId),
+          history: state.history.map((order) =>
+            order.serverId === serverId
+              ? { ...order, voided: true }
+              : order,
+          ),
+        }))
+      },
+
+      voidLocalOrder: (clientId, reason) => {
+        set((state) => ({
+          // Drop any unsent CREATE for this order; it never reaches the server.
+          queue: state.queue.filter(
+            (item) => !(item.id === clientId && item.kind === 'CREATE_ORDER'),
+          ),
+          history: state.history.map((order) =>
+            order.id === clientId
+              ? {
+                  ...order,
+                  voided: true,
+                  voidReason: reason,
+                  syncState: 'voided',
+                }
+              : order,
+          ),
+        }))
       },
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: safeStorage,
       partialize: (state): PersistedPOS => ({
         cart: state.cart,
@@ -338,6 +675,7 @@ export const usePOSStore = create<POSState>()(
         note: state.note,
         drafts: state.drafts,
         history: state.history,
+        queue: state.queue,
       }),
     },
   ),
