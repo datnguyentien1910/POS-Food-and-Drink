@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthUser, SessionResponse } from '../api/types'
@@ -34,5 +34,28 @@ describe('hash router', () => {
     await screen.findByRole('button', { name: 'POS' })
     await user.click(screen.getByRole('button', { name: 'Đơn hàng' }))
     expect(window.location.hash).toBe('#/orders')
+  })
+
+  it('đưa hash lạ về #/pos', async () => {
+    meMock.mockResolvedValue(session())
+    window.location.hash = '#/khong-co'
+    render(<App />)
+    await screen.findByRole('button', { name: 'POS' })
+    await waitFor(() => expect(window.location.hash).toBe('#/pos'))
+  })
+
+  it('giữ deep-link #/menu qua màn đăng nhập', async () => {
+    meMock.mockRejectedValue(new Error('401'))
+    vi.mocked(authApi.staff).mockResolvedValue([{ id: 'u1', name: 'Ngọc Anh', role: 'MANAGER' }])
+    window.location.hash = '#/menu'
+    render(<App />)
+    await screen.findByRole('button', { name: '1' }) // màn PIN/login
+    expect(window.location.hash).toBe('#/menu')
+
+    act(() => {
+      useAuthStore.setState({ status: 'authenticated', user: USER, authMethod: 'password', expiresAt: '2026-11-21T00:00:00.000Z' })
+    })
+    await screen.findByRole('button', { name: 'Thực đơn' })
+    expect(window.location.hash).toBe('#/menu')
   })
 })
