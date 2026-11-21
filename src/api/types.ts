@@ -44,8 +44,16 @@ export interface ServerMenuItem {
   description: string | null
   price: number
   imageKey: string | null
+  imageUrl: string | null
   available: boolean
   popular: boolean
+  sortOrder: number
+}
+
+/** `GET /menu/categories` row without items. */
+export interface ServerMenuCategorySummary {
+  id: string
+  name: string
   sortOrder: number
 }
 

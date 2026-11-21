@@ -70,18 +70,25 @@ export async function request<T>(
   const onExternalAbort = () => controller.abort()
   options.signal?.addEventListener('abort', onExternalAbort)
 
+  const isFormData = options.body instanceof FormData
+
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? 'GET',
       credentials: 'include',
       headers: {
-        ...(options.body === undefined
+        ...(options.body === undefined || isFormData
           ? {}
           : { 'Content-Type': 'application/json' }),
         ...options.headers,
       },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body:
+        options.body === undefined
+          ? undefined
+          : isFormData
+            ? options.body
+            : JSON.stringify(options.body),
       signal: controller.signal,
     })
   } catch (error) {
