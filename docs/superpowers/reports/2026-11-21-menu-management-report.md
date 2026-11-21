@@ -4,7 +4,7 @@
 > **Plan:** `docs/superpowers/plans/2026-11-21-menu-management-plan.md`
 > **Nhánh:** `feat/menu-management` (điểm xuất phát `acc126b`)
 > **Ngày:** 21/11/2026
-> **Trạng thái:** Hoàn thành B1–B3, F1–F4. Review nhánh xong, 3 lỗi Important đã sửa. Tất cả cổng kiểm tra xanh.
+> **Trạng thái:** Hoàn thành B1–B3, F1–F4. Review nhánh xong, 3 lỗi Important đã sửa, toàn bộ 6 nợ Minor đã dọn. Tất cả cổng kiểm tra xanh.
 
 ---
 
@@ -23,8 +23,10 @@ Kết quả cổng kiểm tra sau sửa (đã chạy thật, xem §5):
 | Root `npm test` | ✅ **169/169** (31 file) |
 | Root `npm run build` | ✅ pass |
 | Server `npm run lint` | ✅ sạch |
-| Server `npm run test:e2e` | ✅ **91/91** (13 file) |
+| Server `npm run test:e2e` | ✅ **99/99** (13 file) |
 | Server `npm run build` | ✅ pass |
+
+Server unit: **64/64** (11 file).
 
 ---
 
@@ -65,7 +67,7 @@ Kết quả cổng kiểm tra sau sửa (đã chạy thật, xem §5):
 
 - `MenuItemFormModal` + `MenuImageField`: tên, giá (chặn số không nguyên/âm), nhóm (lọc `all`/`popular`), mô tả, `popular`, `available`, tải ảnh xem trước.
 - Upload ảnh sau khi tạo/sửa (không tạo trùng khi upload lỗi); thu hồi object URL.
-- Ruling F3 trong ledger: test mock `../../api/menu`; `ServerMenuItem` không có `categoryId` nên `MenuPage` truyền kèm id nhóm khi mở form sửa.
+- Ruling F3 trong ledger: test mock `../../api/menu`. (Bản đầu `ServerMenuItem` chưa có `categoryId` nên `MenuPage` truyền kèm id nhóm khi mở form sửa; đã sửa ở §3.2 #6 — giờ server trả `categoryId`.)
 
 ### F4 — Xoá + làm mới catalog + route — commit `30040d9`
 
@@ -91,14 +93,16 @@ Review toàn nhánh `acc126b..30040d9` (8 commit) bằng subagent ngữ cảnh m
 
 Bổ sung: trích helper chung `removeUploadedFile(imageUrl)` dùng cho cả 3 đường (thay ảnh, xoá món, upload lỗi).
 
-### 3.2. Minor (hoãn — ghi nợ)
+### 3.2. Minor — đã dọn trọn bộ (đợt dọn nợ)
 
-1. Chưa thêm `UPLOAD_DIR` vào `server/.env.example`; chưa ignore `uploads/`, `.tmp/` trong git.
-2. Upload thiếu file trả `VALIDATION_ERROR` chung thay vì mã `IMAGE_*`.
-3. Mô tả rỗng lưu `''` thay vì `null`.
-4. e2e chưa kiểm tra audit `MENU_ITEM_CREATED/UPDATED` + `before`/`after`, category nhà hàng khác khi **cập nhật**, CASHIER trên route **upload**.
-5. Audit ghi tách rời với mutation (không transaction).
-6. `MenuItemResponse` thiếu `categoryId` nên form sửa phải chèn `categoryId` phía client.
+| # | Nợ | Cách xử lý | Bằng chứng (đỏ→xanh) |
+| --- | --- | --- | --- |
+| 1 | `UPLOAD_DIR` chưa có trong `server/.env.example`; `uploads/`, `.tmp/` chưa được ignore | Thêm mục `UPLOAD_DIR` (mặc định `./uploads`) vào `.env.example`; ignore `uploads/` + `.tmp/` trong `server/.gitignore`; `uploadRootDir()` coi `UPLOAD_DIR` rỗng/khoảng trắng như chưa đặt | `menu-upload.spec.ts` › "treats a blank UPLOAD_DIR as unset" ĐỎ→XANH; `git check-ignore` xác nhận |
+| 2 | Upload thiếu file trả `VALIDATION_ERROR` chung | `MenuController.uploadImage` ném `AppException(400, 'IMAGE_REQUIRED', …)` | `menu-items.e2e-spec.ts` › "returns 400 IMAGE_REQUIRED when the upload has no file" ĐỎ→XANH |
+| 3 | Mô tả rỗng lưu `''` thay vì `null` | `MenuService.normalizeDescription` chuẩn hoá chuỗi rỗng/khoảng trắng thành `null` cho cả create lẫn update | e2e "stores an empty description as null" + "clears a description when updated to empty" ĐỎ→XANH |
+| 4 | e2e thiếu audit `MENU_ITEM_CREATED/UPDATED` (+`before`/`after`), category nhà hàng khác khi **cập nhật**, CASHIER route **upload** | Thêm 3 e2e (vốn xanh — lấp khoảng trống hồi quy, không cần sửa code) | `menu-items.e2e-spec.ts` +3 test |
+| 5 | Audit ghi tách rời mutation (không transaction) | `createItem`/`updateItem`/`deleteItem`/`setItemImage` bọc mutation + `audit.record(…, tx)` trong `prisma.$transaction`; xoá file ảnh sau khi commit | `menu.service.spec.ts` (4 test) ĐỎ→XANH |
+| 6 | `MenuItemResponse` thiếu `categoryId`, form sửa chèn phía client | Thêm `categoryId` vào `MenuItemResponse`; FE đọc thẳng `item.categoryId`, bỏ chèn trong `MenuPage` | e2e "includes categoryId on created items and in GET /menu" ĐỎ→XANH |
 
 ### 3.3. Ruling cho danh sách "declined to judge"
 
@@ -141,7 +145,8 @@ $ npm run build     → tsc + vite build  (thành công)
 
 # Server
 $ npm run lint      → oxlint --type-aware src/ test/  (không lỗi)
-$ npm run test:e2e  → Test Files 13 passed (13) · Tests 91 passed (91)
+$ npm test          → Test Files 11 passed (11) · Tests 64 passed (64)
+$ npm run test:e2e  → Test Files 13 passed (13) · Tests 99 passed (99)
 $ npm run build     → nest build  (thành công)
 ```
 
@@ -151,4 +156,4 @@ Ghi chú môi trường: trước khi test lại trong thư mục dự án cần
 
 ## 6. Kết luận
 
-Plan được thực thi trọn vẹn B1–B3, F1–F4 đúng TDD (mỗi test đỏ trước khi code). Review nhánh tìm 0 Critical, 3 Important — tất cả đã sửa kèm test đỏ→xanh và chạy lại toàn bộ suite. 6 điểm Minor ghi nợ theo quyết định, không chặn merge. Sẵn sàng hoàn tất nhánh.
+Plan được thực thi trọn vẹn B1–B3, F1–F4 đúng TDD (mỗi test đỏ trước khi code). Review nhánh tìm 0 Critical, 3 Important — tất cả đã sửa kèm test đỏ→xanh và chạy lại toàn bộ suite. Sau đó dọn trọn bộ 6 nợ Minor (§3.2) cũng theo TDD, chạy lại toàn bộ cổng kiểm tra và đều xanh. Sẵn sàng hoàn tất nhánh.

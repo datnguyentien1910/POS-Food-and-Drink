@@ -39,6 +39,7 @@ export interface ServerMenuCategory {
 
 export interface ServerMenuItem {
   id: string
+  categoryId: string
   legacyId: string | null
   name: string
   description: string | null

@@ -22,7 +22,8 @@ const EXTENSION_BY_MIME: Record<string, string> = {
 };
 
 export function uploadRootDir(): string {
-  return process.env.UPLOAD_DIR ?? path.join(process.cwd(), 'uploads');
+  const configured = process.env.UPLOAD_DIR?.trim();
+  return configured ? configured : path.join(process.cwd(), 'uploads');
 }
 
 export function menuUploadDir(): string {

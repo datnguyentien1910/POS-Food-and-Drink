@@ -27,9 +27,7 @@ export function MenuPage() {
   const [categories, setCategories] = useState<ServerMenuCategorySummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [editor, setEditor] = useState<{
-    item?: ServerMenuItem & { categoryId?: string }
-  } | null>(null)
+  const [editor, setEditor] = useState<{ item?: ServerMenuItem } | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ServerMenuItem | null>(
     null,
   )
@@ -186,9 +184,7 @@ export function MenuPage() {
                       key={item.id}
                       item={item}
                       canEdit={canEdit}
-                      onEdit={() =>
-                        setEditor({ item: { ...item, categoryId: group.id } })
-                      }
+                      onEdit={() => setEditor({ item })}
                       onDelete={() => setPendingDelete(item)}
                     />
                   ))}

@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -25,6 +24,7 @@ import { SESSION_COOKIE } from '../auth/auth.constants.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
+import { AppException } from '../common/errors/app.exception.js';
 import { clientIp, userAgent } from '../common/http/request.util.js';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto.js';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto.js';
@@ -108,7 +108,7 @@ export class MenuController {
     @Req() request: Request,
   ): Promise<MenuItemResponse> {
     if (!file) {
-      throw new BadRequestException('Thiếu file ảnh');
+      throw new AppException(400, 'IMAGE_REQUIRED', 'Thiếu file ảnh');
     }
     return this.menuService.setItemImage(
       user.restaurantId,

@@ -399,4 +399,164 @@ describe('Menu items (e2e)', () => {
       entityId: id,
     });
   });
+
+  it('includes categoryId on created items and in GET /menu', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, { name: 'Món có nhóm' });
+    const id = trackItem(created);
+
+    expect(created.body.data.categoryId).toBe(categoryId);
+
+    const menu = await owner.get('/api/v1/menu').expect(200);
+    const items = (
+      menu.body.data.categories as Array<{
+        items: Array<{ id: string; categoryId: string }>;
+      }>
+    ).flatMap((category) => category.items);
+    expect(items).toContainEqual(expect.objectContaining({ id, categoryId }));
+  });
+
+  it('stores an empty description as null', async () => {
+    const owner = await login(OWNER);
+
+    const blank = await createItem(owner, {
+      name: 'Món mô tả rỗng',
+      description: '',
+    });
+    trackItem(blank);
+    expect(blank.body.data.description).toBeNull();
+
+    const spaces = await createItem(owner, {
+      name: 'Món mô tả khoảng trắng',
+      description: '   ',
+    });
+    trackItem(spaces);
+    expect(spaces.body.data.description).toBeNull();
+  });
+
+  it('clears a description when updated to empty', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, {
+      name: 'Món có mô tả',
+      description: 'Ngon',
+    });
+    const id = trackItem(created);
+    expect(created.body.data.description).toBe('Ngon');
+
+    await owner
+      .patch(`/api/v1/menu/items/${id}`)
+      .send({ description: '' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.data.description).toBeNull();
+      });
+  });
+
+  it('returns 400 IMAGE_REQUIRED when the upload has no file', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, { name: 'Món thiếu ảnh' });
+    const id = trackItem(created);
+
+    await owner
+      .post(`/api/v1/menu/items/${id}/image`)
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.error.code).toBe('IMAGE_REQUIRED');
+      });
+  });
+
+  it('records MENU_ITEM_CREATED with the created item as after', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, {
+      name: 'Món ghi audit tạo',
+      description: 'Mô tả',
+    });
+    const id = trackItem(created);
+
+    const audit = await owner
+      .get('/api/v1/audit?action=MENU_ITEM_CREATED&limit=100')
+      .expect(200);
+    const entry = (
+      audit.body.data as Array<{ entityId: string }>
+    ).find((log) => log.entityId === id);
+
+    expect(entry).toMatchObject({
+      action: 'MENU_ITEM_CREATED',
+      entity: 'MenuItem',
+      entityId: id,
+      before: null,
+      after: expect.objectContaining({ id, name: 'Món ghi audit tạo' }),
+    });
+  });
+
+  it('records MENU_ITEM_UPDATED with before and after', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, {
+      name: 'Món ghi audit sửa',
+      price: 50000,
+    });
+    const id = trackItem(created);
+
+    await owner
+      .patch(`/api/v1/menu/items/${id}`)
+      .send({ price: 60000 })
+      .expect(200);
+
+    const audit = await owner
+      .get('/api/v1/audit?action=MENU_ITEM_UPDATED&limit=100')
+      .expect(200);
+    const entry = (
+      audit.body.data as Array<{ entityId: string }>
+    ).find((log) => log.entityId === id);
+
+    expect(entry).toMatchObject({
+      entityId: id,
+      before: expect.objectContaining({ price: 50000 }),
+      after: expect.objectContaining({ price: 60000 }),
+    });
+  });
+
+  it('returns 404 MENU_CATEGORY_NOT_FOUND updating to another restaurant category', async () => {
+    const owner = await login(OWNER);
+    const created = await createItem(owner, { name: 'Món đổi nhóm lạ' });
+    const id = trackItem(created);
+    const foreign = await prisma.restaurant.create({
+      data: {
+        slug: `foreign-${randomUUID()}`,
+        name: 'Quán khác khi sửa',
+        categories: { create: { name: 'Nhóm khác' } },
+      },
+      include: { categories: true },
+    });
+
+    try {
+      await owner
+        .patch(`/api/v1/menu/items/${id}`)
+        .send({ categoryId: foreign.categories[0].id })
+        .expect(404)
+        .expect((response) => {
+          expect(response.body.error.code).toBe('MENU_CATEGORY_NOT_FOUND');
+        });
+    } finally {
+      await prisma.restaurant.delete({ where: { id: foreign.id } });
+    }
+  });
+
+  it('CASHIER cannot upload an item image', async () => {
+    const owner = await login(OWNER);
+    const cashier = await login(CASHIER);
+    const created = await createItem(owner, { name: 'Món ảnh thu ngân' });
+    const id = trackItem(created);
+    const before = await uploadedFiles();
+
+    await cashier
+      .post(`/api/v1/menu/items/${id}/image`)
+      .attach('file', Buffer.from('bytes'), {
+        filename: 'cashier.webp',
+        contentType: 'image/webp',
+      })
+      .expect(403);
+
+    expect(await uploadedFiles()).toEqual(before);
+  });
 });

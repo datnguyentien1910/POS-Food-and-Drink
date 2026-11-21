@@ -31,6 +31,7 @@ const MENU: ServerMenuCategory[] = [
     items: [
       {
         id: 'm1',
+        categoryId: 'c1',
         legacyId: 'ga-nuong',
         name: 'Gà nướng',
         description: 'Gà nướng mật ong',
@@ -43,6 +44,7 @@ const MENU: ServerMenuCategory[] = [
       },
       {
         id: 'm2',
+        categoryId: 'c1',
         legacyId: 'pho-bo',
         name: 'Phở bò',
         description: null,
@@ -159,6 +161,7 @@ describe('MenuPage', () => {
     setRole('OWNER')
     vi.mocked(createMenuItem).mockResolvedValue({
       id: 'new-1',
+      categoryId: 'c1',
       legacyId: null,
       name: 'Cơm gà',
       description: null,

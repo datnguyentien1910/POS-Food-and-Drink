@@ -12,6 +12,7 @@ import { menuUploadDir } from './menu-upload.js';
 
 export interface MenuItemResponse {
   id: string;
+  categoryId: string;
   legacyId: string | null;
   name: string;
   description: string | null;
@@ -83,29 +84,36 @@ export class MenuService {
   ): Promise<MenuItemResponse> {
     await this.assertCategory(restaurantId, dto.categoryId);
 
-    const item = await this.prisma.menuItem.create({
-      data: {
-        restaurantId,
-        categoryId: dto.categoryId,
-        name: dto.name,
-        description: dto.description ?? null,
-        price: dto.price,
-        imageKey: dto.imageKey ?? null,
-        available: dto.available ?? true,
-        popular: dto.popular ?? false,
-        sortOrder: dto.sortOrder ?? 0,
-      },
-    });
+    const item = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.menuItem.create({
+        data: {
+          restaurantId,
+          categoryId: dto.categoryId,
+          name: dto.name,
+          description: this.normalizeDescription(dto.description) ?? null,
+          price: dto.price,
+          imageKey: dto.imageKey ?? null,
+          available: dto.available ?? true,
+          popular: dto.popular ?? false,
+          sortOrder: dto.sortOrder ?? 0,
+        },
+      });
 
-    await this.audit.record({
-      restaurantId,
-      actorId: actor.id,
-      action: 'MENU_ITEM_CREATED',
-      entity: 'MenuItem',
-      entityId: item.id,
-      after: this.toResponse(item),
-      ip: meta.ip,
-      userAgent: meta.userAgent,
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_CREATED',
+          entity: 'MenuItem',
+          entityId: created.id,
+          after: this.toResponse(created),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+
+      return created;
     });
 
     return this.toResponse(item);
@@ -123,34 +131,41 @@ export class MenuService {
       await this.assertCategory(restaurantId, dto.categoryId);
     }
 
-    const item = await this.prisma.menuItem.update({
-      where: { id: existing.id },
-      data: {
-        ...(dto.categoryId !== undefined
-          ? { categoryId: dto.categoryId }
-          : {}),
-        ...(dto.name !== undefined ? { name: dto.name } : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description }
-          : {}),
-        ...(dto.price !== undefined ? { price: dto.price } : {}),
-        ...(dto.imageKey !== undefined ? { imageKey: dto.imageKey } : {}),
-        ...(dto.available !== undefined ? { available: dto.available } : {}),
-        ...(dto.popular !== undefined ? { popular: dto.popular } : {}),
-        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
-      },
-    });
+    const item = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.menuItem.update({
+        where: { id: existing.id },
+        data: {
+          ...(dto.categoryId !== undefined
+            ? { categoryId: dto.categoryId }
+            : {}),
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.description !== undefined
+            ? { description: this.normalizeDescription(dto.description) }
+            : {}),
+          ...(dto.price !== undefined ? { price: dto.price } : {}),
+          ...(dto.imageKey !== undefined ? { imageKey: dto.imageKey } : {}),
+          ...(dto.available !== undefined ? { available: dto.available } : {}),
+          ...(dto.popular !== undefined ? { popular: dto.popular } : {}),
+          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        },
+      });
 
-    await this.audit.record({
-      restaurantId,
-      actorId: actor.id,
-      action: 'MENU_ITEM_UPDATED',
-      entity: 'MenuItem',
-      entityId: item.id,
-      before: this.toResponse(existing),
-      after: this.toResponse(item),
-      ip: meta.ip,
-      userAgent: meta.userAgent,
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_UPDATED',
+          entity: 'MenuItem',
+          entityId: updated.id,
+          before: this.toResponse(existing),
+          after: this.toResponse(updated),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+
+      return updated;
     });
 
     return this.toResponse(item);
@@ -173,24 +188,31 @@ export class MenuService {
       throw error;
     }
 
-    const item = await this.prisma.menuItem.update({
-      where: { id: existing.id },
-      data: { imageUrl },
+    const item = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.menuItem.update({
+        where: { id: existing.id },
+        data: { imageUrl },
+      });
+
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_UPDATED',
+          entity: 'MenuItem',
+          entityId: updated.id,
+          before: this.toResponse(existing),
+          after: this.toResponse(updated),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+
+      return updated;
     });
 
     await this.removeUploadedFile(existing.imageUrl);
-
-    await this.audit.record({
-      restaurantId,
-      actorId: actor.id,
-      action: 'MENU_ITEM_UPDATED',
-      entity: 'MenuItem',
-      entityId: item.id,
-      before: this.toResponse(existing),
-      after: this.toResponse(item),
-      ip: meta.ip,
-      userAgent: meta.userAgent,
-    });
 
     return this.toResponse(item);
   }
@@ -203,20 +225,25 @@ export class MenuService {
   ): Promise<void> {
     const existing = await this.findItemOrThrow(restaurantId, id);
 
-    await this.prisma.menuItem.delete({ where: { id: existing.id } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.menuItem.delete({ where: { id: existing.id } });
+
+      await this.audit.record(
+        {
+          restaurantId,
+          actorId: actor.id,
+          action: 'MENU_ITEM_DELETED',
+          entity: 'MenuItem',
+          entityId: existing.id,
+          before: this.toResponse(existing),
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+        tx,
+      );
+    });
 
     await this.removeUploadedFile(existing.imageUrl);
-
-    await this.audit.record({
-      restaurantId,
-      actorId: actor.id,
-      action: 'MENU_ITEM_DELETED',
-      entity: 'MenuItem',
-      entityId: existing.id,
-      before: this.toResponse(existing),
-      ip: meta.ip,
-      userAgent: meta.userAgent,
-    });
   }
 
   private async removeUploadedFile(imageUrl: string | null): Promise<void> {
@@ -226,6 +253,14 @@ export class MenuService {
     } catch {
       // The stored file may already be gone; cleanup is best-effort.
     }
+  }
+
+  private normalizeDescription(
+    value: string | null | undefined,
+  ): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    return value.trim().length === 0 ? null : value;
   }
 
   private async findItemOrThrow(
@@ -265,6 +300,7 @@ export class MenuService {
   private toResponse(item: MenuItem): MenuItemResponse {
     return {
       id: item.id,
+      categoryId: item.categoryId,
       legacyId: item.legacyId,
       name: item.name,
       description: item.description,

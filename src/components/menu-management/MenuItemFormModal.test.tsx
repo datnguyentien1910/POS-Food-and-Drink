@@ -27,8 +27,9 @@ const CATEGORIES: ServerMenuCategorySummary[] = [
   { id: 'c2', name: 'Đồ uống', sortOrder: 3 },
 ]
 
-const ITEM: ServerMenuItem & { categoryId: string } = {
+const ITEM: ServerMenuItem = {
   id: 'm1',
+  categoryId: 'c1',
   legacyId: 'pho-bo',
   name: 'Phở bò',
   description: 'Nước dùng hầm xương',
@@ -38,10 +39,9 @@ const ITEM: ServerMenuItem & { categoryId: string } = {
   available: true,
   popular: false,
   sortOrder: 0,
-  categoryId: 'c1',
 }
 
-function renderModal(item?: ServerMenuItem & { categoryId?: string }) {
+function renderModal(item?: ServerMenuItem) {
   const onClose = vi.fn()
   const onSaved = vi.fn()
 

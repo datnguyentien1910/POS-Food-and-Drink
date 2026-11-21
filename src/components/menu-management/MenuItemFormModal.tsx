@@ -16,12 +16,10 @@ import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
 import { MenuImageField } from './MenuImageField'
 
-type EditableMenuItem = ServerMenuItem & { categoryId?: string }
-
 export interface MenuItemFormModalProps {
   open: boolean
   categories: ServerMenuCategorySummary[]
-  item?: EditableMenuItem
+  item?: ServerMenuItem
   onClose: () => void
   onSaved: () => void
 }
