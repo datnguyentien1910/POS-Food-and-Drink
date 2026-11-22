@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthUser, SessionResponse } from '../api/types'
 import App from '../App'
 import { useAuthStore } from '../store/useAuthStore'
+import { usePOSStore } from '../store/usePOSStore'
 
 vi.mock('../api/auth', () => ({
   login: vi.fn(), me: vi.fn(), logout: vi.fn(),
@@ -30,6 +31,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   window.location.hash = ''
   useAuthStore.setState({ status: 'checking', user: null, authMethod: null, expiresAt: null, lastUser: null, lastOnlineAt: null, error: null })
+  usePOSStore.getState().resetOrder()
 })
 
 describe('hash router', () => {
@@ -48,6 +50,32 @@ describe('hash router', () => {
     render(<App />)
     await screen.findByRole('button', { name: 'POS' })
     await waitFor(() => expect(window.location.hash).toBe('#/pos'))
+  })
+
+  it('đưa hash rỗng về #/pos', async () => {
+    meMock.mockResolvedValue(session())
+    window.location.hash = ''
+    render(<App />)
+    await screen.findByRole('button', { name: 'POS' })
+    await waitFor(() => expect(window.location.hash).toBe('#/pos'))
+  })
+
+  it('giữ nguyên đơn đang làm khi rời trang rồi quay lại', async () => {
+    meMock.mockResolvedValue(session())
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().setNote('Ít đá')
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('button', { name: 'POS' })
+    await user.click(screen.getByRole('button', { name: 'Đơn hàng' }))
+    await screen.findByRole('button', { name: 'POS' })
+    await user.click(screen.getByRole('button', { name: 'POS' }))
+
+    expect(usePOSStore.getState().cart).toHaveLength(1)
+    expect(usePOSStore.getState().tableId).toBe('ban-5')
+    expect(usePOSStore.getState().note).toBe('Ít đá')
   })
 
   it('giữ deep-link #/menu qua màn đăng nhập', async () => {
