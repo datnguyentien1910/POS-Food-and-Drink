@@ -1,9 +1,12 @@
 import {
+  Armchair,
   Banknote,
   CheckCircle2,
+  ChevronDown,
   CreditCard,
   Landmark,
   ReceiptText,
+  ShoppingBag,
 } from 'lucide-react'
 import { useState } from 'react'
 import { RESTAURANT } from '../../config'
@@ -12,17 +15,22 @@ import { tableName } from '../../data/tables'
 import { calcTotals } from '../../lib/calc'
 import { formatVND } from '../../lib/format'
 import { countUnserved } from '../../lib/table-state'
+import { useCatalogStore } from '../../store/useCatalogStore'
 import { usePOSStore } from '../../store/usePOSStore'
 import type { OrderRecord, PaymentMethod } from '../../types'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
 import { useToast } from '../ui/toast-context'
+import { NoteEditor } from './NoteEditor'
+import { OrderSummary } from './OrderSummary'
 
-interface ChargeModalProps {
+export interface OrderModalProps {
   open: boolean
   onClose: () => void
+  /** Reserved for the pending-order mode; create mode ignores it. */
+  orderId?: string
+  tableId?: string | null
   onOpenReceipt?: (order: OrderRecord) => void
-  onCompleted?: (order: OrderRecord) => void
 }
 
 const METHODS: { id: PaymentMethod; label: string; hint: string }[] = [
@@ -38,17 +46,23 @@ const METHODS: { id: PaymentMethod; label: string; hint: string }[] = [
 const roundUp = (value: number, step: number) =>
   Math.ceil(value / step) * step
 
-export function ChargeModal({
+export function OrderModal({
   open,
   onClose,
+  tableId,
   onOpenReceipt,
-  onCompleted,
-}: ChargeModalProps) {
+}: OrderModalProps) {
   const cart = usePOSStore((state) => state.cart)
-  const tableId = usePOSStore((state) => state.tableId)
+  const storeTableId = usePOSStore((state) => state.tableId)
   const discount = usePOSStore((state) => state.discount)
+  const assignTable = usePOSStore((state) => state.assignTable)
+  const savePendingOrder = usePOSStore((state) => state.savePendingOrder)
   const completeOrder = usePOSStore((state) => state.completeOrder)
+  const tables = useCatalogStore((state) => state.tables)
   const { push } = useToast()
+
+  // An explicit prop (including `null`) wins over the active store table.
+  const sourceTableId = tableId !== undefined ? tableId : storeTableId
 
   const totals = calcTotals(
     cart.map((line) => ({
@@ -65,25 +79,38 @@ export function ChargeModal({
   )
   const [completed, setCompleted] = useState<OrderRecord | null>(null)
   const [confirmedUnserved, setConfirmedUnserved] = useState(false)
+  const [selectedTableId, setSelectedTableId] = useState(sourceTableId)
+  const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [wasOpen, setWasOpen] = useState(open)
+  const [lastPropTableId, setLastPropTableId] = useState(tableId)
 
-  // Drop the acknowledgement as soon as the parent closes the modal, so a
-  // later reopen always starts with the normal confirmation button again.
+  // A fresh open starts a fresh order. This also drops the unserved
+  // acknowledgement, so a later reopen always asks again.
   if (wasOpen !== open) {
     setWasOpen(open)
-    if (!open) setConfirmedUnserved(false)
+    if (!open) {
+      setConfirmedUnserved(false)
+    } else {
+      setSelectedTableId(sourceTableId)
+      setMethod('cash')
+      setReceivedInput(totals.total > 0 ? String(totals.total) : '')
+      setCompleted(null)
+      setTablePickerOpen(false)
+    }
   }
 
-  const unserved = countUnserved(cart)
-  const needsWarning = tableId !== null && unserved > 0
-  const showWarning = needsWarning && confirmedUnserved
-
-  const handleClose = () => {
+  // A caller may open the same modal component for another table (Task 6+).
+  if (open && tableId !== undefined && tableId !== lastPropTableId) {
+    setLastPropTableId(tableId)
+    setSelectedTableId(tableId)
     setConfirmedUnserved(false)
-    onClose()
   }
 
   const itemCount = cart.reduce((sum, line) => sum + line.qty, 0)
+  const unserved = countUnserved(cart)
+  const needsWarning = selectedTableId !== null && unserved > 0
+  const showWarning = needsWarning && confirmedUnserved
+
   const receivedNumber = Math.max(0, Math.round(Number(receivedInput) || 0))
   const isInsufficient = method === 'cash' && receivedNumber < totals.total
   const change = Math.max(0, receivedNumber - totals.total)
@@ -98,6 +125,11 @@ export function ChargeModal({
     ]),
   ).filter((amount) => amount > 0)
 
+  const handleClose = () => {
+    setConfirmedUnserved(false)
+    onClose()
+  }
+
   const handleConfirm = () => {
     if (!canConfirm) return
 
@@ -106,6 +138,9 @@ export function ChargeModal({
       return
     }
 
+    // `assignTable` (not `setTable`) keeps the cart on the selected table
+    // without stashing it into `openOrders` before the order is saved.
+    assignTable(selectedTableId)
     const order = completeOrder({
       method,
       expectedTotal: totals.total,
@@ -117,7 +152,23 @@ export function ChargeModal({
 
     setCompleted(order)
     push(`Đã thanh toán ${formatVND(order.total)}`, 'success')
-    onCompleted?.(order)
+  }
+
+  const handleSavePending = () => {
+    if (cart.length === 0) return
+
+    assignTable(selectedTableId)
+    const saved = savePendingOrder()
+    if (!saved) return
+
+    push('Đã lưu đơn chờ thanh toán', 'success')
+    onClose()
+  }
+
+  const chooseTable = (id: string | null) => {
+    setSelectedTableId(id)
+    setTablePickerOpen(false)
+    setConfirmedUnserved(false)
   }
 
   const methodLabel =
@@ -126,14 +177,13 @@ export function ChargeModal({
   return (
     <Modal
       open={open}
-      title={completed ? 'Hoàn tất thanh toán' : 'Thanh toán'}
+      title={completed ? 'Hoàn tất thanh toán' : 'Tạo đơn'}
       description={
         completed
           ? 'Đơn đã được lưu vào lịch sử trên thiết bị này.'
-          : `${itemCount} món · ${tableName(tableId)}`
+          : `${itemCount} món · ${tableName(selectedTableId)}`
       }
       onClose={handleClose}
-      size="sm"
       footer={
         completed ? undefined : (
           <div className="space-y-2">
@@ -145,9 +195,18 @@ export function ChargeModal({
                 Còn {unserved} món chưa mang ra — vẫn thanh toán?
               </p>
             ) : null}
-            <Button fullWidth disabled={!canConfirm} onClick={handleConfirm}>
-              {showWarning ? 'Vẫn thanh toán' : 'Xác nhận thanh toán'}
-            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                disabled={!canConfirm}
+                onClick={handleSavePending}
+              >
+                Lưu chờ thanh toán
+              </Button>
+              <Button disabled={!canConfirm} onClick={handleConfirm}>
+                {showWarning ? 'Vẫn thanh toán' : 'Thanh toán'}
+              </Button>
+            </div>
             <p className="text-center text-[10px] text-faint">
               {isInsufficient
                 ? 'Khách đưa chưa đủ tiền để thanh toán.'
@@ -220,7 +279,89 @@ export function ChargeModal({
         </div>
       ) : (
         <div>
-          <div className="rounded-xl bg-primary-soft/70 p-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold text-muted">Bàn</span>
+            <button
+              type="button"
+              aria-label="Chọn bàn"
+              aria-expanded={tablePickerOpen}
+              onClick={() => setTablePickerOpen((value) => !value)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-bg px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:border-line-strong"
+            >
+              <Armchair size={14} className="text-primary" />
+              {tableName(selectedTableId)}
+              <ChevronDown size={12} className="text-faint" />
+            </button>
+          </div>
+
+          {tablePickerOpen ? (
+            <div className="mt-2 grid grid-cols-3 gap-2 rounded-xl border border-line bg-bg/60 p-2">
+              {tables.map((table) => (
+                <button
+                  key={table.id}
+                  type="button"
+                  aria-pressed={selectedTableId === table.id}
+                  onClick={() => chooseTable(table.id)}
+                  className={`rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors ${
+                    selectedTableId === table.id
+                      ? 'border-primary-ring bg-primary-soft text-primary'
+                      : 'border-line bg-surface text-muted hover:text-ink'
+                  }`}
+                >
+                  {table.name}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={selectedTableId === null}
+                onClick={() => chooseTable(null)}
+                className={`col-span-3 flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors ${
+                  selectedTableId === null
+                    ? 'border-primary-ring bg-primary-soft text-primary'
+                    : 'border-line bg-surface text-muted hover:text-ink'
+                }`}
+              >
+                <ShoppingBag size={13} />
+                Mang đi
+              </button>
+            </div>
+          ) : null}
+
+          {cart.length > 0 ? (
+            <div className="mt-3 divide-y divide-line rounded-xl border border-line px-3">
+              {cart.map((line) => (
+                <div
+                  key={line.lineId}
+                  className="flex items-center justify-between gap-2 py-2 text-xs"
+                >
+                  <span className="min-w-0 truncate font-medium text-ink">
+                    {line.name ?? getMenuItem(line.menuItemId)?.name ?? 'Món'}
+                    <span className="ml-1 text-muted">×{line.qty}</span>
+                    {line.served === true ? (
+                      <span className="ml-1 text-[10px] font-semibold text-positive">
+                        Đã ra
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 font-semibold text-ink tabular-nums">
+                    {formatVND(
+                      (line.unitPrice ??
+                        getMenuItem(line.menuItemId)?.price ??
+                        0) * line.qty,
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-3">
+            <NoteEditor />
+          </div>
+
+          <OrderSummary totals={totals} />
+
+          <div className="mt-4 rounded-xl bg-primary-soft/70 p-3.5">
             <div className="flex items-end justify-between gap-2">
               <span className="text-[11px] font-semibold text-primary/80">
                 Tổng cần thu
@@ -228,28 +369,6 @@ export function ChargeModal({
               <span className="text-xl leading-none font-bold text-primary tabular-nums">
                 {formatVND(totals.total)}
               </span>
-            </div>
-            <div className="mt-2.5 grid grid-cols-3 gap-2 text-center text-[10px]">
-              <div className="rounded-lg bg-surface/70 px-1 py-1.5">
-                <p className="text-muted">Tạm tính</p>
-                <p className="mt-0.5 font-semibold text-ink tabular-nums">
-                  {formatVND(totals.subtotal)}
-                </p>
-              </div>
-              <div className="rounded-lg bg-surface/70 px-1 py-1.5">
-                <p className="text-muted">Giảm giá</p>
-                <p className="mt-0.5 font-semibold text-positive tabular-nums">
-                  -{formatVND(totals.discountAmount)}
-                </p>
-              </div>
-              <div className="rounded-lg bg-surface/70 px-1 py-1.5">
-                <p className="text-muted">
-                  VAT {Math.round(RESTAURANT.taxRate * 100)}%
-                </p>
-                <p className="mt-0.5 font-semibold text-ink tabular-nums">
-                  {formatVND(totals.tax)}
-                </p>
-              </div>
             </div>
           </div>
 

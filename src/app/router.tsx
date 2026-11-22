@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { createHashRouter, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router'
 import { AppShell } from '../components/layout/AppShell'
-import { ChargeModal } from '../components/modals/ChargeModal'
 import { ReceiptModal } from '../components/modals/ReceiptModal'
+import { OrderModal } from '../components/order/OrderModal'
 import { GlobalSearch } from '../components/search/GlobalSearch'
 import { APP_PAGES, type PageId } from '../config'
 import { MenuPage } from '../pages/MenuPage'
@@ -26,7 +26,7 @@ function AppLayout() {
   const navigate = useNavigate()
   const activePage = pageFromPath(useLocation().pathname)
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1280)
-  const [chargeOpen, setChargeOpen] = useState(false)
+  const [orderOpen, setOrderOpen] = useState(false)
   const [receiptOrder, setReceiptOrder] = useState<OrderRecord | null>(null)
 
   useEffect(() => {
@@ -53,12 +53,12 @@ function AppLayout() {
         searchSlot={<GlobalSearch onNavigate={go} onOpenReceipt={setReceiptOrder} />}
       >
         <Outlet
-          context={{ onCreateOrder: () => setChargeOpen(true), onOpenReceipt: setReceiptOrder } satisfies LayoutContext}
+          context={{ onCreateOrder: () => setOrderOpen(true), onOpenReceipt: setReceiptOrder } satisfies LayoutContext}
         />
       </AppShell>
-      {chargeOpen ? (
-        <ChargeModal open onClose={() => setChargeOpen(false)}
-          onOpenReceipt={(order) => { setReceiptOrder(order); setChargeOpen(false) }} />
+      {orderOpen ? (
+        <OrderModal open onClose={() => setOrderOpen(false)}
+          onOpenReceipt={(order) => { setReceiptOrder(order); setOrderOpen(false) }} />
       ) : null}
       <ReceiptModal order={receiptOrder} open={Boolean(receiptOrder)} onClose={() => setReceiptOrder(null)} />
     </>
