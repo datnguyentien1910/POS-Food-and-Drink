@@ -79,6 +79,8 @@ interface POSState extends PersistedPOS {
     lineId: string,
     served: boolean,
   ) => void
+  setPendingLineQty: (orderId: string, lineId: string, qty: number) => void
+  removePendingLine: (orderId: string, lineId: string) => void
   setAllPendingServed: (orderId: string) => void
   setLineServed: (lineId: string, served: boolean) => void
   setAllServed: () => void
@@ -465,6 +467,66 @@ function triggerSync(): void {
     .catch(() => undefined)
 }
 
+/**
+ * Shared patch for popup quantity edits. `qty <= 0` drops the line, otherwise
+ * it is updated in place. Returns null when the target is not editable.
+ * Lines are addressed as `${order.id}:${index}` by the modal.
+ */
+function patchPendingLine(
+  state: POSState,
+  orderId: string,
+  lineId: string,
+  qty: number,
+): Partial<POSState> | null {
+  const order = state.history.find(
+    (item) => item.id === orderId && item.status === 'pending_payment',
+  )
+  if (!order) return null
+
+  const index = order.items.findIndex(
+    (_line, i) => `${order.id}:${i}` === lineId,
+  )
+  if (index < 0 || order.items[index].served === true) return null
+
+  const remove = qty <= 0
+  const items = remove
+    ? order.items.filter((_line, i) => i !== index)
+    : order.items.map((line, i) => (i === index ? { ...line, qty } : line))
+
+  const discount: Discount = order.discount ?? {
+    type: 'amount',
+    value: order.discountAmount,
+  }
+  const totals = calcTotals(
+    items.map((item) => ({ unitPrice: item.unitPrice, qty: item.qty })),
+    discount,
+    RESTAURANT.taxRate,
+  )
+  const updated: LocalOrder = {
+    ...order,
+    items,
+    ...totals,
+    updatedAt: Date.now(),
+  }
+
+  return {
+    history: state.history.map((item) =>
+      item.id === order.id ? updated : item,
+    ),
+    // A resumed order is saved back from the active cart; mirror the patch so
+    // savePendingOrder() cannot restore the old qty or bring the line back.
+    ...(state.editingPendingOrderId === orderId
+      ? {
+          cart: remove
+            ? state.cart.filter((line) => line.lineId !== lineId)
+            : state.cart.map((line) =>
+                line.lineId === lineId ? { ...line, qty } : line,
+              ),
+        }
+      : {}),
+  }
+}
+
 export const usePOSStore = create<POSState>()(
   persist<POSState, [], [], PersistedPOS>(
     (set, get) => ({
@@ -832,6 +894,17 @@ export const usePOSStore = create<POSState>()(
               }
             : {}),
         }))
+      },
+
+      setPendingLineQty: (orderId, lineId, qty) => {
+        if (!Number.isFinite(qty)) return
+        const patch = patchPendingLine(get(), orderId, lineId, qty)
+        if (patch) set(patch)
+      },
+
+      removePendingLine: (orderId, lineId) => {
+        const patch = patchPendingLine(get(), orderId, lineId, 0)
+        if (patch) set(patch)
       },
 
       setAllPendingServed: (orderId) => {

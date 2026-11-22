@@ -1522,4 +1522,261 @@ describe('pending orders', () => {
       expect(usePOSStore.getState().history[0].status).toBe('completed')
     })
   })
+
+  describe('editing pending lines', () => {
+    const seedTwoLinePending = () => {
+      usePOSStore.getState().assignTable('ban-5')
+      usePOSStore.getState().addItem(chicken.id)
+      usePOSStore.getState().addItem(coffee.id)
+      usePOSStore.getState().addItem(coffee.id)
+      usePOSStore.getState().setDiscount({ type: 'percent', value: 10 })
+      usePOSStore.getState().setNote('Ít đá')
+      return usePOSStore.getState().savePendingOrder()!
+    }
+
+    it('decreases a line qty and recomputes totals', () => {
+      const order = seedTwoLinePending()
+      const before = usePOSStore.getState().history[0]
+      expect(before.subtotal).toBe(159000)
+      expect(before.discountAmount).toBe(15900)
+      expect(before.tax).toBe(11448)
+      expect(before.total).toBe(154548)
+
+      usePOSStore.getState().setPendingLineQty(order.id, `${order.id}:1`, 1)
+
+      const state = usePOSStore.getState()
+      const updated = state.history[0]
+      expect(updated.items.map((line) => line.qty)).toEqual([1, 1])
+      expect(updated.items[0]).toEqual(before.items[0])
+      expect(updated).toMatchObject({
+        subtotal: 134000,
+        discountAmount: 13400,
+        tax: 9648,
+        total: 130248,
+      })
+      expect(updated.id).toBe(order.id)
+      expect(updated.clientId).toBe(order.clientId)
+      expect(updated.code).toBe(order.code)
+      expect(updated.note).toBe(before.note)
+      expect(updated.discount).toEqual(before.discount)
+      expect(updated.tableId).toBe(before.tableId)
+      expect(updated.tableName).toBe(before.tableName)
+      expect(updated.status).toBe('pending_payment')
+      expect(updated.syncState).toBe(before.syncState)
+      expect(updated.updatedAt).toBeGreaterThanOrEqual(before.updatedAt ?? 0)
+      expect(state.cart).toEqual([])
+      expect(state.queue).toEqual([])
+    })
+
+    it('removes a line when qty reaches zero', () => {
+      const order = seedTwoLinePending()
+
+      usePOSStore.getState().setPendingLineQty(order.id, `${order.id}:0`, 0)
+
+      const state = usePOSStore.getState()
+      expect(state.history[0].items).toEqual([order.items[1]])
+      expect(state.history[0]).toMatchObject({
+        subtotal: 50000,
+        discountAmount: 5000,
+        tax: 3600,
+        total: 48600,
+      })
+      expect(state.history[0].clientId).toBe(order.clientId)
+      expect(state.cart).toEqual([])
+    })
+
+    it('removes a line for a negative qty', () => {
+      const order = seedTwoLinePending()
+
+      usePOSStore.getState().setPendingLineQty(order.id, `${order.id}:1`, -2)
+
+      expect(usePOSStore.getState().history[0].items).toEqual([order.items[0]])
+    })
+
+    it('removePendingLine deletes the target line', () => {
+      const order = seedTwoLinePending()
+
+      usePOSStore.getState().removePendingLine(order.id, `${order.id}:0`)
+
+      const updated = usePOSStore.getState().history[0]
+      expect(updated.items).toEqual([order.items[1]])
+      expect(updated).toMatchObject({
+        subtotal: 50000,
+        discountAmount: 5000,
+        tax: 3600,
+        total: 48600,
+      })
+      expect(updated.clientId).toBe(order.clientId)
+      expect(updated.status).toBe('pending_payment')
+      expect(usePOSStore.getState().queue).toEqual([])
+    })
+
+    it('does not change qty or remove a served line', () => {
+      usePOSStore.getState().assignTable('ban-5')
+      usePOSStore.getState().addItem(chicken.id)
+      const servedId = usePOSStore.getState().cart[0].lineId
+      usePOSStore.getState().setLineServed(servedId, true)
+      usePOSStore.getState().addItem(coffee.id)
+      const order = usePOSStore.getState().savePendingOrder()!
+      expect(order.items.map((line) => line.served)).toEqual([true, false])
+      const before = usePOSStore.getState().history[0]
+
+      usePOSStore.getState().setPendingLineQty(order.id, `${order.id}:0`, 5)
+      usePOSStore.getState().setPendingLineQty(order.id, `${order.id}:0`, 0)
+      usePOSStore.getState().removePendingLine(order.id, `${order.id}:0`)
+
+      expect(usePOSStore.getState().history[0]).toEqual(before)
+      expect(usePOSStore.getState().cart).toEqual([])
+    })
+
+    it('recomputes totals from discountAmount when the discount field is absent', () => {
+      const order = seedTwoLinePending()
+      usePOSStore.setState({
+        history: [{ ...order, discount: undefined }],
+      })
+
+      usePOSStore.getState().removePendingLine(order.id, `${order.id}:0`)
+
+      const updated = usePOSStore.getState().history[0]
+      expect(updated).toMatchObject({
+        subtotal: 50000,
+        discountAmount: order.discountAmount,
+        tax: 2728,
+        total: 36828,
+      })
+      expect(updated.discount).toBeUndefined()
+    })
+
+    it('syncs a qty change into the active cart so a later save keeps it', () => {
+      const order = seedTwoLinePending()
+      usePOSStore.getState().resumePendingOrder(order.id)
+      usePOSStore.setState((state) => ({
+        cart: [
+          ...state.cart,
+          {
+            lineId: 'extra',
+            menuItemId: coffee.id,
+            qty: 4,
+            unitPrice: coffee.price,
+            name: coffee.name,
+            served: false,
+          },
+        ],
+      }))
+
+      usePOSStore.getState().setPendingLineQty(order.id, `${order.id}:1`, 1)
+
+      const state = usePOSStore.getState()
+      expect(state.history[0].items.map((line) => line.qty)).toEqual([1, 1])
+      expect(state.cart.map((line) => line.qty)).toEqual([1, 1, 4])
+      expect(state.cart.map((line) => line.lineId)).toEqual([
+        `${order.id}:0`,
+        `${order.id}:1`,
+        'extra',
+      ])
+
+      const saved = state.savePendingOrder()!
+      expect(saved.id).toBe(order.id)
+      expect(saved.items.map((line) => line.qty)).toEqual([1, 1, 4])
+      expect(saved.total).toBe(227448)
+    })
+
+    it('syncs a removal into the active cart so a later save keeps it', () => {
+      const order = seedTwoLinePending()
+      usePOSStore.getState().resumePendingOrder(order.id)
+
+      usePOSStore.getState().removePendingLine(order.id, `${order.id}:0`)
+
+      const state = usePOSStore.getState()
+      expect(state.history[0].items).toEqual([{ ...order.items[1], qty: 2 }])
+      expect(state.cart.map((line) => line.lineId)).toEqual([`${order.id}:1`])
+
+      const saved = state.savePendingOrder()!
+      expect(saved.items.map((line) => line.menuItemId)).toEqual([coffee.id])
+      expect(saved.total).toBe(48600)
+    })
+
+    it('leaves an unrelated active cart and snapshots untouched', () => {
+      const order = seedTwoLinePending()
+      const cart = [
+        {
+          lineId: 'other',
+          menuItemId: coffee.id,
+          qty: 3,
+          unitPrice: coffee.price,
+          name: coffee.name,
+          served: false,
+        },
+      ]
+      const openOrders = {
+        'ban-1': {
+          cart,
+          discount: { type: 'amount' as const, value: 0 },
+          note: 'Khác',
+          updatedAt: 1,
+        },
+      }
+      usePOSStore.setState({
+        cart: cart.map((line) => ({ ...line })),
+        tableId: 'ban-1',
+        openOrders,
+        editingPendingOrderId: 'someone-else',
+      })
+
+      usePOSStore.getState().setPendingLineQty(order.id, `${order.id}:1`, 1)
+      usePOSStore.getState().removePendingLine(order.id, `${order.id}:0`)
+
+      const state = usePOSStore.getState()
+      expect(state.cart).toEqual(cart)
+      expect(state.openOrders).toEqual(openOrders)
+      expect(state.tableId).toBe('ban-1')
+      expect(state.editingPendingOrderId).toBe('someone-else')
+      expect(state.history[0].items.map((line) => line.qty)).toEqual([1])
+    })
+
+    it('patches only the target order', () => {
+      const order = seedTwoLinePending()
+      usePOSStore.getState().assignTable('ban-2')
+      usePOSStore.getState().addItem(chicken.id)
+      const other = usePOSStore.getState().savePendingOrder()!
+      expect(usePOSStore.getState().history).toHaveLength(2)
+
+      usePOSStore.getState().removePendingLine(order.id, `${order.id}:0`)
+
+      const state = usePOSStore.getState()
+      expect(state.history.find((item) => item.id === order.id)!.items).toEqual([
+        order.items[1],
+      ])
+      expect(state.history.find((item) => item.id === other.id)).toEqual(other)
+    })
+
+    it('does not touch a completed order or the sync queue', () => {
+      usePOSStore.getState().addItem(chicken.id)
+      const completed = usePOSStore
+        .getState()
+        .completeOrder({ method: 'cash' })!
+      const before = usePOSStore.getState().history[0]
+      const queueBefore = usePOSStore.getState().queue
+
+      usePOSStore.getState().setPendingLineQty(completed.id, `${completed.id}:0`, 2)
+      usePOSStore.getState().removePendingLine(completed.id, `${completed.id}:0`)
+
+      const state = usePOSStore.getState()
+      expect(state.history[0]).toEqual(before)
+      expect(state.queue).toEqual(queueBefore)
+      expect(state.cart).toEqual([])
+    })
+
+    it('no-ops for an unknown order id or line id', () => {
+      const order = seedTwoLinePending()
+      const before = usePOSStore.getState().history[0]
+
+      usePOSStore.getState().setPendingLineQty('missing', `${order.id}:0`, 5)
+      usePOSStore.getState().removePendingLine('missing', `${order.id}:0`)
+      usePOSStore.getState().setPendingLineQty(order.id, 'missing-line', 5)
+      usePOSStore.getState().removePendingLine(order.id, 'missing-line')
+
+      expect(usePOSStore.getState().history[0]).toEqual(before)
+    })
+  })
 })
