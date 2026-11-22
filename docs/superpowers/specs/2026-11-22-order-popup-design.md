@@ -28,7 +28,8 @@ Panel phải của POS hiện vừa sửa món, vừa ghi chú, giảm giá, v�
 - Giữ persist key `restodash-pos-v1`; nâng version **3 → 4**, có migration và test.
 - `OrderRecord` thêm `status: 'pending_payment' | 'completed' | 'cancelled'`; giữ `syncState` riêng cho đồng bộ.
 - `OrderLineSnapshot` thêm `served?: boolean` để giữ trạng thái đã mang ra khi lưu đơn chờ.
-- Store thêm `editingPendingOrderId: string | null` (persisted): id đơn chờ đang được mở trên POS. Đơn này không được tính trùng trong danh sách/bàn trong lúc đang soạn.
+- Store thêm `editingPendingOrderId: string | null` (persisted): id đơn chờ đang được soạn trên POS. Chỉ `resumePendingOrder` set; lưu/thanh toán/huỷ/reset xoá. Đơn này không được tính trùng trong danh sách/bàn.
+- `openOrders` v3 giữ nguyên nghĩa (giỏ treo), không chuyển thành đơn chờ khi migrate v4. Nếu nhiều đơn chờ cùng bàn, `pendingOrderForTable` trả đơn **mới nhất**; Orders liệt kê tất cả. Lưu/resume đơn chờ phải xoá `openOrders[bàn]` tương ứng.
 - Giữ nguyên luật `served` (khoá sửa/xoá; thêm món trùng tạo dòng mới) và cảnh báo 2 bước khi thanh toán còn món chưa ra.
 - Giao diện tiếng Việt, dùng token màu có sẵn (`gold`, `negative`, `positive`).
 - Không thêm dependency runtime; không mock/fake data trong production code.
@@ -49,7 +50,8 @@ Orders (đơn chờ) ──bấm đơn───┘
 ```
 
 - **Lưu chờ thanh toán**: upsert bản ghi `status: 'pending_payment'` vào `history`, giữ toàn bộ món/`served`/ghi chú/giảm giá/bàn; xoá giỏ active; bàn vẫn bận.
-- **Thêm món**: `resumePendingOrder(id)` nạp dữ liệu đơn vào giỏ active, gán `editingPendingOrderId = id`, quay về POS. Bản ghi vẫn còn nhưng được coi là "đang soạn", không hiển thị trong danh sách chờ. Lưu lại thì cập nhật chính bản ghi đó.
+- **Mở popup từ Bàn/Orders**: chỉ đọc đơn từ `history` để hiển thị/thanh toán/huỷ, **không** đụng vào giỏ active và **không** set `editingPendingOrderId`.
+- **Thêm món**: `resumePendingOrder(id)` nạp dữ liệu đơn vào giỏ active, gán `editingPendingOrderId = id`, quay về POS. Bản ghi vẫn còn nhưng được coi là "đang soạn", không hiển thị trong danh sách chờ. Lưu lại thì cập nhật chính bản ghi đó. `editingPendingOrderId` bị xoá khi lưu, thanh toán, huỷ hoặc reset đơn.
 - **Thanh toán**: `payPendingOrder(id, payment)` dùng lại `clientId` của đơn để đẩy queue, đổi status `completed`; bàn về trống. Cảnh báo món chưa ra vẫn áp dụng.
 - **Huỷ đơn**: `cancelPendingOrder(id)` → `cancelled`; bàn về trống; nếu có queue item thì bỏ.
 - **Từ trang Bàn**: bàn có đơn (🟡/🟢) → mở popup của đơn đó; bàn 🔴 → chọn bàn rồi vào POS.

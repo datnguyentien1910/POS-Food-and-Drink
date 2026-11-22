@@ -67,11 +67,12 @@ cancelPendingOrder: (orderId: string) => void
 ```
 
 - `assignTable` chỉ set `tableId` (không stash cart) — dùng khi popup đổi bàn trước khi lưu.
-- `savePendingOrder`: nếu `editingPendingOrderId` trỏ tới bản ghi `pending_payment` thì **cập nhật bản ghi đó** (món/giá/ghi chú/giảm giá/bàn/`updatedAt`), giữ `clientId`; nếu không thì tạo bản ghi mới với `clientId = makeId()`, `code = provisionalCode`, `status: 'pending_payment'`. Sau đó xoá snapshot active, `emptyOrder()`, giữ `editingPendingOrderId = null`.
-- `resumePendingOrder(id)`: nếu giỏ active có món thì cất vào `openOrders[orderKey(tableId)]`; nạp món từ đơn chờ (map `OrderLineSnapshot` → `CartLine` với `lineId` ổn định `${order.id}:${index}`), discount, note, `assignTable(order.tableId)`; xoá đơn khỏi `history`; set `editingPendingOrderId = id`.
+- `savePendingOrder`: nếu `editingPendingOrderId` trỏ tới bản ghi `pending_payment` thì **cập nhật bản ghi đó** (món/giá/ghi chú/giảm giá/bàn/`updatedAt`), giữ `clientId`; nếu không thì tạo bản ghi mới với `clientId = makeId()`, `code = provisionalCode`, `status: 'pending_payment'`. Sau đó xoá snapshot active **và** `openOrders[orderKey(tableId)]`, `emptyOrder()`, giữ `editingPendingOrderId = null`. Nhiều đơn chờ cùng bàn được phép; `pendingOrderForTable` lấy đơn mới nhất.
+- `resumePendingOrder(id)`: nếu giỏ active có món thì cất vào `openOrders[orderKey(tableId)]`; xoá `openOrders[orderKey(order.tableId)]` để tránh snapshot cũ đè lên; nạp món từ đơn chờ (map `OrderLineSnapshot` → `CartLine` với `lineId` ổn định `${order.id}:${index}`), discount, note, `assignTable(order.tableId)`; xoá đơn khỏi `history`; set `editingPendingOrderId = id`.
 - `payPendingOrder(id, input)`: tìm đơn `pending_payment`, dùng `clientId` làm id queue item (`CREATE_ORDER`, idempotencyKey = clientId), expectedTotal từ input, đẩy queue, cập nhật đơn thành `completed`, clear `editingPendingOrderId`. Dùng chung `SERVER_METHOD`, `triggerSync`.
 - `cancelPendingOrder(id)`: status `cancelled`, bỏ queue item có id = clientId, clear `editingPendingOrderId` nếu trùng.
 - `completeOrder` ghi `served: line.served === true` vào `OrderLineSnapshot`.
+- `resetOrder` và `saveDraft` cũng xoá `editingPendingOrderId` (và snapshot active) để không để đơn chờ bị "kẹt" ở trạng thái đang soạn.
 - `isTableBusy(tableId)` thêm điều kiện: tồn tại đơn `pending_payment` có `tableId` đó và `id !== editingPendingOrderId`.
 
 **TDD** (mới trong `describe('pending orders')`): lưu chờ rồi lưu lại vẫn 1 đơn; lưu chờ xoá giỏ; resume không mất giỏ cũ; resume giữ served/ghi chú/bàn; pay dùng lại clientId và đổi status; cancel bỏ queue; isTableBusy đúng với đơn chờ; completeOrder lưu served.
@@ -99,7 +100,7 @@ export function tableServingState(
 ): { state: TableState; itemCount: number }
 ```
 
-- `pendingOrderForTable` bỏ qua đơn đang soạn và chỉ lấy `status === 'pending_payment'`.
+- `pendingOrderForTable` bỏ qua đơn đang soạn, chỉ lấy `status === 'pending_payment'` và trả đơn có `createdAt` lớn nhất.
 - `tableServingState`: ưu tiên `tableLines(...)` (active/suspended); nếu rỗng và có pending order → map `order.items` thành `CartLine` (`lineId = ${order.id}:${index}`, `served` mặc định false); rồi `tableState(lines)` + tổng qty.
 
 **TDD:** pending order cho bàn đúng; bỏ qua đơn đang soạn; bàn 🔴 khi không có gì; itemCount tổng qty; served hết → `served`.
@@ -150,7 +151,7 @@ interface OrderModalProps {
 
 **Files:** `src/components/order/OrderModal.tsx`, `src/components/order/OrderModal.test.tsx`
 
-- Khi có `orderId`: trên open gọi `resumePendingOrder(orderId)`; hiện thông tin bàn, món, `served`, ghi chú, giảm giá của đơn đó.
+- Khi có `orderId`: **không** gọi `resumePendingOrder` lúc mở; đọc đơn từ `history` qua selector để hiện bàn, món, `served`, ghi chú, giảm giá. Giỏ active và `editingPendingOrderId` không đổi khi chỉ mở popup.
 - Nút **Thêm món**: `onClose()` + điều hướng POS (component nhận `onAddItems?: () => void`), giữ giỏ active đã nạp.
 - Nút **Huỷ đơn**: `ConfirmModal` title `Huỷ đơn?`, xác nhận → `cancelPendingOrder`, toast `Đã huỷ đơn`.
 - Nút **Thanh toán**: `payPendingOrder(orderId, payment)`, vẫn cảnh báo món chưa ra, mở receipt.
