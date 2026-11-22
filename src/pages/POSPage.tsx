@@ -48,7 +48,7 @@ export function POSPage({ onCreateOrder }: POSPageProps) {
             Bán hàng
           </p>
           <p className="mt-0.5 text-xs text-muted">
-            Chọn món, lưu nháp và thanh toán tại quầy.
+            Chọn món, lưu nháp và tạo đơn tại quầy.
           </p>
         </div>
         <button

@@ -196,7 +196,7 @@ describe('tableServingState', () => {
     ).toEqual({ state: 'pending', itemCount: 5 })
   })
 
-  it('maps pending order items with stable ids and a served default of false', () => {
+  it('treats a pending order item with no served flag as unserved', () => {
     const history = [
       pendingOrder('o-1', 'ban-5', 100, [
         { menuItemId: 'a', name: 'A', unitPrice: 10, qty: 2 },
