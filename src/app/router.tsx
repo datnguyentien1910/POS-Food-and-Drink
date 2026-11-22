@@ -18,7 +18,7 @@ export function pageFromPath(pathname: string): PageId {
 }
 
 export type LayoutContext = {
-  onCharge: () => void
+  onCreateOrder: () => void
   onOpenReceipt: (order: OrderRecord) => void
 }
 
@@ -53,7 +53,7 @@ function AppLayout() {
         searchSlot={<GlobalSearch onNavigate={go} onOpenReceipt={setReceiptOrder} />}
       >
         <Outlet
-          context={{ onCharge: () => setChargeOpen(true), onOpenReceipt: setReceiptOrder } satisfies LayoutContext}
+          context={{ onCreateOrder: () => setChargeOpen(true), onOpenReceipt: setReceiptOrder } satisfies LayoutContext}
         />
       </AppShell>
       {chargeOpen ? (
@@ -66,8 +66,8 @@ function AppLayout() {
 }
 
 function POSRoute() {
-  const { onCharge } = useOutletContext<LayoutContext>()
-  return <POSPage onCharge={onCharge} />
+  const { onCreateOrder } = useOutletContext<LayoutContext>()
+  return <POSPage onCreateOrder={onCreateOrder} />
 }
 
 function OrdersRoute() {

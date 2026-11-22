@@ -6,16 +6,16 @@ import { ToastProvider } from '../ui/Toast'
 import { OrderPanel } from './OrderPanel'
 
 function renderPanel() {
-  const onCharge = vi.fn()
+  const onCreateOrder = vi.fn()
   const onOpenDrafts = vi.fn()
 
   const view = render(
     <ToastProvider>
-      <OrderPanel onCharge={onCharge} onOpenDrafts={onOpenDrafts} />
+      <OrderPanel onCreateOrder={onCreateOrder} onOpenDrafts={onOpenDrafts} />
     </ToastProvider>,
   )
 
-  return { onCharge, onOpenDrafts, unmount: view.unmount }
+  return { onCreateOrder, onOpenDrafts, unmount: view.unmount }
 }
 
 const resetStore = () => {
@@ -39,7 +39,7 @@ describe('OrderPanel', () => {
     renderPanel()
 
     expect(screen.getByText('Giỏ hàng trống')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Thanh toán/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Tạo đơn' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Lưu tạm' })).toBeDisabled()
   })
 
@@ -63,9 +63,7 @@ describe('OrderPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Tăng số lượng' }))
 
     expect(usePOSStore.getState().cart[0].qty).toBe(2)
-    const summary = screen.getByRole('region', { name: 'Tổng kết đơn' })
-    expect(within(summary).getByText('218.000 ₫')).toBeInTheDocument()
-    expect(within(summary).getByText('235.440 ₫')).toBeInTheDocument()
+    expect(screen.getByText('235.440 ₫')).toBeInTheDocument()
   })
 
   it('removes a line from the cart', async () => {
@@ -93,35 +91,24 @@ describe('OrderPanel', () => {
     ).toBeInTheDocument()
   })
 
-  it('applies a discount and recalculates the summary', async () => {
-    const user = userEvent.setup()
+  it('reflects a discount set outside the panel in the total', () => {
     usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().setDiscount({ type: 'amount', value: 20000 })
     renderPanel()
 
-    await user.click(screen.getByRole('button', { name: 'Sửa giảm giá' }))
-    await user.click(screen.getByRole('button', { name: 'Số tiền' }))
-    await user.type(screen.getByRole('spinbutton', { name: 'Giá trị giảm' }), '20000')
-    await user.click(screen.getByRole('button', { name: 'Áp dụng' }))
-
-    expect(usePOSStore.getState().discount).toEqual({
-      type: 'amount',
-      value: 20000,
-    })
-
-    const summary = screen.getByRole('region', { name: 'Tổng kết đơn' })
-    expect(within(summary).getByText('-20.000 ₫')).toBeInTheDocument()
-    expect(within(summary).getByText('96.120 ₫')).toBeInTheDocument()
+    expect(screen.getByText('96.120 ₫')).toBeInTheDocument()
   })
 
-  it('saves a note on the order', async () => {
-    const user = userEvent.setup()
+  it('does not render payment, note or discount controls', () => {
     usePOSStore.getState().addItem('ga-nuong')
     renderPanel()
 
-    await user.click(screen.getByRole('button', { name: /Thêm ghi chú/ }))
-    await user.type(screen.getByRole('textbox', { name: 'Ghi chú đơn' }), 'Ít đá')
-
-    expect(usePOSStore.getState().note).toBe('Ít đá')
+    expect(screen.queryByText(/Thanh toán/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ghi chú/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Giảm giá/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Sửa giảm giá' }),
+    ).not.toBeInTheDocument()
   })
 
   it('saves the current order as a draft', async () => {
@@ -136,16 +123,14 @@ describe('OrderPanel', () => {
     expect(screen.getByText('Đã lưu đơn nháp')).toBeInTheDocument()
   })
 
-  it('starts payment with the current total', async () => {
+  it('creates an order with the current total', async () => {
     const user = userEvent.setup()
     usePOSStore.getState().addItem('ga-nuong')
-    const { onCharge } = renderPanel()
+    const { onCreateOrder } = renderPanel()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Thanh toán 117.720 ₫' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Tạo đơn 117.720 ₫' }))
 
-    expect(onCharge).toHaveBeenCalledTimes(1)
+    expect(onCreateOrder).toHaveBeenCalledTimes(1)
   })
 
   it('asks before clearing the order and keeps it when cancelled', async () => {
