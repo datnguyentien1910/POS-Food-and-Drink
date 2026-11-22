@@ -776,8 +776,9 @@ export const usePOSStore = create<POSState>()(
         }))
       },
 
-      // Popup edits patch the history row in place: pending mode never resumes
-      // the order, so the active cart and open snapshots must stay untouched.
+      // Popup edits patch the history row in place without resuming the order.
+      // When the order is still being edited, the matching active state is
+      // synced too, so savePendingOrder() cannot overwrite the patch later.
       setPendingOrderTable: (orderId, tableId) => {
         const isTarget = (order: LocalOrder) =>
           order.id === orderId && order.status === 'pending_payment'
@@ -800,12 +801,17 @@ export const usePOSStore = create<POSState>()(
         }))
       },
 
-      setPendingLineServed: (orderId, lineId, served) =>
+      setPendingLineServed: (orderId, lineId, served) => {
+        const isTarget = (order: LocalOrder) =>
+          order.id === orderId && order.status === 'pending_payment'
+        if (!get().history.some(isTarget)) return
+
         set((state) => ({
           history: state.history.map((order) =>
-            order.id === orderId && order.status === 'pending_payment'
+            isTarget(order)
               ? {
                   ...order,
+                  updatedAt: Date.now(),
                   // Pending lines are addressed as `${order.id}:${index}` by
                   // the modal; only `served` changes, never qty or prices.
                   items: order.items.map((line, index) =>
@@ -816,19 +822,50 @@ export const usePOSStore = create<POSState>()(
                 }
               : order,
           ),
-        })),
+          // A resumed order is saved back from the active cart; keep the
+          // matching cart line in sync so its served flag survives that save.
+          ...(state.editingPendingOrderId === orderId
+            ? {
+                cart: state.cart.map((line) =>
+                  line.lineId === lineId ? { ...line, served } : line,
+                ),
+              }
+            : {}),
+        }))
+      },
 
-      setAllPendingServed: (orderId) =>
+      setAllPendingServed: (orderId) => {
+        const isTarget = (order: LocalOrder) =>
+          order.id === orderId && order.status === 'pending_payment'
+        const target = get().history.find(isTarget)
+        if (!target) return
+        const cartLineIds = new Set(
+          target.items.map((_line, index) => `${orderId}:${index}`),
+        )
+
         set((state) => ({
           history: state.history.map((order) =>
-            order.id === orderId && order.status === 'pending_payment'
+            isTarget(order)
               ? {
                   ...order,
+                  updatedAt: Date.now(),
                   items: order.items.map((line) => ({ ...line, served: true })),
                 }
               : order,
           ),
-        })),
+          // Only the lines belonging to the edited order are synced; any
+          // extra lines added through "Thêm món" keep their own served flags.
+          ...(state.editingPendingOrderId === orderId
+            ? {
+                cart: state.cart.map((line) =>
+                  cartLineIds.has(line.lineId)
+                    ? { ...line, served: true }
+                    : line,
+                ),
+              }
+            : {}),
+        }))
+      },
 
       setLineServed: (lineId, served) =>
         set((state) => ({

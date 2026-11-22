@@ -1460,5 +1460,66 @@ describe('pending orders', () => {
       expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(false)
       expect(usePOSStore.getState().isTableBusy('ban-2')).toBe(true)
     })
+
+    it('keeps a single served toggle on a resumed order through save and payment', () => {
+      const order = seedTwoLinePending()
+      usePOSStore.getState().resumePendingOrder(order.id)
+      expect(usePOSStore.getState().editingPendingOrderId).toBe(order.id)
+      expect(usePOSStore.getState().cart.map((line) => line.lineId)).toEqual([
+        `${order.id}:0`,
+        `${order.id}:1`,
+      ])
+
+      usePOSStore
+        .getState()
+        .setPendingLineServed(order.id, `${order.id}:0`, true)
+
+      expect(usePOSStore.getState().cart.map((line) => line.served)).toEqual([
+        true,
+        false,
+      ])
+      expect(
+        usePOSStore.getState().history[0].items.map((line) => line.served),
+      ).toEqual([true, false])
+
+      const saved = usePOSStore.getState().savePendingOrder()!
+      expect(saved.items.map((line) => line.served)).toEqual([true, false])
+
+      const paid = usePOSStore
+        .getState()
+        .payPendingOrder(order.id, { method: 'cash' })!
+      expect(paid.items.map((line) => line.served)).toEqual([true, false])
+      expect(
+        usePOSStore.getState().history[0].items.map((line) => line.served),
+      ).toEqual([true, false])
+    })
+
+    it('keeps all-served on a resumed order through save and payment', () => {
+      const order = seedTwoLinePending()
+      usePOSStore.getState().resumePendingOrder(order.id)
+      expect(usePOSStore.getState().editingPendingOrderId).toBe(order.id)
+
+      usePOSStore.getState().setAllPendingServed(order.id)
+
+      expect(usePOSStore.getState().cart.map((line) => line.served)).toEqual([
+        true,
+        true,
+      ])
+      expect(
+        usePOSStore.getState().history[0].items.map((line) => line.served),
+      ).toEqual([true, true])
+
+      const saved = usePOSStore.getState().savePendingOrder()!
+      expect(saved.items.map((line) => line.served)).toEqual([true, true])
+
+      const paid = usePOSStore
+        .getState()
+        .payPendingOrder(order.id, { method: 'cash' })!
+      expect(paid.items.map((line) => line.served)).toEqual([true, true])
+      expect(
+        usePOSStore.getState().history[0].items.map((line) => line.served),
+      ).toEqual([true, true])
+      expect(usePOSStore.getState().history[0].status).toBe('completed')
+    })
   })
 })
