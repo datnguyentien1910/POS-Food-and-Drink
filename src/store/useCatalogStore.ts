@@ -59,6 +59,12 @@ function isRetryable(error: unknown): boolean {
   return !(error instanceof ApiError) || error.isOffline
 }
 
+function catalogErrorMessage(error: unknown): string {
+  return error instanceof ApiError
+    ? error.message
+    : 'Không tải được dữ liệu'
+}
+
 // Builtin tables have no server UUID until a successful sync assigns one.
 const BUILTIN_TABLES: TableOption[] = TABLES.map((table) => ({ ...table }))
 
@@ -141,12 +147,28 @@ export const useCatalogStore = create<CatalogState>()(
 
         async refresh() {
           set({ loading: true, error: null })
-          try {
-            await get().flushTableOps()
-            const [menu, serverTables] = await Promise.all([
-              getMenu(),
-              getTables(),
-            ])
+
+          // Menu and tables are independent resources. A failing tables
+          // endpoint must not prevent freshly added dishes from reaching POS.
+          const [menuResult, tablesResult] = await Promise.allSettled([
+            getMenu(),
+            (async () => {
+              await get().flushTableOps()
+              return getTables()
+            })(),
+          ])
+
+          const patch: Partial<CatalogState> = { loading: false }
+          const errors: string[] = []
+
+          if (menuResult.status === 'fulfilled') {
+            patch.items = mapMenuItems(menuResult.value)
+          } else {
+            errors.push(catalogErrorMessage(menuResult.reason))
+          }
+
+          if (tablesResult.status === 'fulfilled') {
+            const serverTables = tablesResult.value
             const pendingDeletes = new Set(
               get()
                 .pendingTableOps.filter(
@@ -165,21 +187,17 @@ export const useCatalogStore = create<CatalogState>()(
                 !table.serverId &&
                 !syncedIds.has(table.id),
             )
-            set({
-              items: mapMenuItems(menu),
-              tables: [...syncedTables, ...pendingTables],
-              categories: CATEGORIES,
-              fetchedAt: Date.now(),
-              source: 'api',
-              loading: false,
-            })
-          } catch (error) {
-            const message =
-              error instanceof ApiError
-                ? error.message
-                : 'Không tải được thực đơn'
-            set({ loading: false, error: message })
+            patch.tables = [...syncedTables, ...pendingTables]
+          } else {
+            errors.push(catalogErrorMessage(tablesResult.reason))
           }
+
+          if (menuResult.status === 'fulfilled' || tablesResult.status === 'fulfilled') {
+            patch.source = 'api'
+            patch.fetchedAt = Date.now()
+          }
+          patch.error = errors[0] ?? null
+          set(patch)
         },
 
         getItemByLegacyId(id) {
