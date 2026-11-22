@@ -16,6 +16,7 @@ import type {
   OpenOrderSnapshot,
   OrderLineSnapshot,
   OrderRecord,
+  OrderStatus,
   PaymentMethod,
   ServerPaymentMethod,
   SyncError,
@@ -40,11 +41,14 @@ interface PersistedPOS {
   history: LocalOrder[]
   queue: SyncItem[]
   openOrders: Record<string, OpenOrderSnapshot>
+  editingPendingOrderId: string | null
 }
 
-type PersistedPOSv2 = Omit<PersistedPOS, 'openOrders'>
+type PersistedPOSv3 = Omit<PersistedPOS, 'editingPendingOrderId'>
 
-type PersistedPOSv1 = Omit<PersistedPOS, 'history' | 'queue' | 'openOrders'> & {
+type PersistedPOSv2 = Omit<PersistedPOSv3, 'openOrders'>
+
+type PersistedPOSv1 = Omit<PersistedPOSv2, 'history' | 'queue'> & {
   history: OrderRecord[]
 }
 
@@ -88,7 +92,7 @@ interface POSState extends PersistedPOS {
 
 const emptyOrder = (): Omit<
   PersistedPOS,
-  'drafts' | 'history' | 'queue' | 'openOrders'
+  'drafts' | 'history' | 'queue' | 'openOrders' | 'editingPendingOrderId'
 > => ({
   cart: [],
   tableId: null,
@@ -177,13 +181,17 @@ const isOpenOrders = (
   !Array.isArray(value) &&
   Object.values(value).every(isOpenOrderSnapshot)
 
+const isOrderStatus = (value: unknown): value is OrderStatus =>
+  value === 'pending_payment' || value === 'completed' || value === 'cancelled'
+
 const isOrderLine = (value: unknown): value is OrderLineSnapshot =>
   isRecord(value) &&
   typeof value.menuItemId === 'string' &&
   typeof value.name === 'string' &&
   isFiniteNumber(value.unitPrice) &&
   isFiniteNumber(value.qty) &&
-  value.qty > 0
+  value.qty > 0 &&
+  (value.served === undefined || typeof value.served === 'boolean')
 
 const isOrder = (value: unknown): value is OrderRecord =>
   isRecord(value) &&
@@ -204,7 +212,8 @@ const isOrder = (value: unknown): value is OrderRecord =>
   (value.change === undefined || isFiniteNumber(value.change)) &&
   typeof value.note === 'string' &&
   isFiniteNumber(value.createdAt) &&
-  typeof value.cashier === 'string'
+  typeof value.cashier === 'string' &&
+  (value.status === undefined || isOrderStatus(value.status))
 
 const isQueueItem = (value: unknown): value is SyncItem =>
   isRecord(value) &&
@@ -234,11 +243,29 @@ const isPersistedPOSv2 = (value: unknown): value is PersistedPOSv2 =>
 const hasValidOpenOrders = (value: unknown): boolean =>
   isRecord(value) && isOpenOrders(value.openOrders)
 
-const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+const isPersistedPOSv3 = (value: unknown): value is PersistedPOSv3 =>
   isPersistedPOSv2(value) && hasValidOpenOrders(value)
 
+const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+  isRecord(value) &&
+  (value.editingPendingOrderId === null ||
+    typeof value.editingPendingOrderId === 'string') &&
+  isPersistedPOSv3(value)
+
+/** Adds the v4 fields to an older snapshot, deriving status from `voided`. */
+function toV4(state: PersistedPOSv3): PersistedPOS {
+  return {
+    ...state,
+    editingPendingOrderId: null,
+    history: state.history.map((order) => ({
+      ...order,
+      status: order.voided ? 'cancelled' : 'completed',
+    })),
+  }
+}
+
 /** Upgrades a v1 snapshot: old orders become read-only `legacy` rows. */
-function migrateV1(from: PersistedPOSv1): PersistedPOS {
+function migrateV1(from: PersistedPOSv1): PersistedPOSv3 {
   const history: LocalOrder[] = from.history.map((order) => ({
     ...order,
     clientId: order.id,
@@ -282,14 +309,18 @@ const safeStorage: PersistStorage<PersistedPOS> = {
       const parsed = JSON.parse(raw) as unknown
       if (!isRecord(parsed) || !isRecord(parsed.state)) return null
 
-      if (parsed.version === 3 && isPersistedPOS(parsed.state)) {
-        return { state: parsed.state, version: 3 }
+      if (parsed.version === 4 && isPersistedPOS(parsed.state)) {
+        return { state: parsed.state, version: 4 }
+      }
+
+      if (parsed.version === 3 && isPersistedPOSv3(parsed.state)) {
+        return { state: toV4(parsed.state), version: 4 }
       }
 
       if (parsed.version === 2 && isPersistedPOSv2(parsed.state)) {
         return {
-          state: { ...parsed.state, openOrders: {} },
-          version: 3,
+          state: toV4({ ...parsed.state, openOrders: {} }),
+          version: 4,
         }
       }
 
@@ -307,8 +338,8 @@ const safeStorage: PersistStorage<PersistedPOS> = {
           legacy.history.every(isOrder)
         ) {
           return {
-            state: migrateV1(legacy as unknown as PersistedPOSv1),
-            version: 3,
+            state: toV4(migrateV1(legacy as unknown as PersistedPOSv1)),
+            version: 4,
           }
         }
       }
@@ -378,6 +409,7 @@ export const usePOSStore = create<POSState>()(
       history: [],
       queue: [],
       openOrders: {},
+      editingPendingOrderId: null,
       storageError: false,
 
       addItem: (menuItemId) => {
@@ -823,7 +855,7 @@ export const usePOSStore = create<POSState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 3,
+      version: 4,
       storage: safeStorage,
       partialize: (state): PersistedPOS => ({
         cart: state.cart,
@@ -834,6 +866,7 @@ export const usePOSStore = create<POSState>()(
         history: state.history,
         queue: state.queue,
         openOrders: state.openOrders,
+        editingPendingOrderId: state.editingPendingOrderId,
       }),
     },
   ),

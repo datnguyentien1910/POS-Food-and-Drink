@@ -103,11 +103,16 @@ export interface OpenOrderSnapshot {
 
 export type PaymentMethod = 'cash' | 'transfer' | 'card'
 
+/** Business status of an order, independent of its sync state. */
+export type OrderStatus = 'pending_payment' | 'completed' | 'cancelled'
+
 export interface OrderLineSnapshot {
   menuItemId: string
   name: string
   unitPrice: number
   qty: number
+  /** Absent on legacy orders; missing means the line has not been served. */
+  served?: boolean
 }
 
 export interface OrderRecord {
@@ -126,6 +131,8 @@ export interface OrderRecord {
   note: string
   createdAt: number
   cashier: string
+  /** Business status; absent on legacy orders created before v4. */
+  status?: OrderStatus
   /** Integration bookkeeping; absent on legacy orders created before sync. */
   clientId?: string
   serverId?: string

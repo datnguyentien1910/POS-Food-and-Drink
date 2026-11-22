@@ -20,6 +20,7 @@ function resetStore() {
     history: [],
     queue: [],
     openOrders: {},
+    editingPendingOrderId: null,
     storageError: false,
   })
 }
@@ -304,7 +305,191 @@ describe('persistence', () => {
     expect(usePOSStore.getState().cart[0].menuItemId).toBe(chicken.id)
   })
 
-  it('upgrades a v2 snapshot to v3 with empty open orders', async () => {
+  it('upgrades a v3 snapshot to v4, preserving state and deriving history statuses', async () => {
+    const cart = [
+      {
+        lineId: 'l1',
+        menuItemId: chicken.id,
+        qty: 1,
+        unitPrice: chicken.price,
+        name: chicken.name,
+        served: false,
+      },
+    ]
+    const drafts = [
+      {
+        id: 'draft-1',
+        tableId: 'ban-5',
+        items: cart,
+        discount: { type: 'amount', value: 0 },
+        note: 'Nháp',
+        createdAt: 1767225600000,
+      },
+    ]
+    const items = [
+      {
+        menuItemId: chicken.id,
+        name: chicken.name,
+        unitPrice: chicken.price,
+        qty: 1,
+      },
+    ]
+    const history = [
+      {
+        id: 'order-1',
+        clientId: 'order-1',
+        code: 'HD-001',
+        tableId: null,
+        tableName: 'Mang đi',
+        items,
+        subtotal: chicken.price,
+        discountAmount: 0,
+        tax: 0,
+        total: chicken.price,
+        method: 'cash',
+        note: '',
+        createdAt: 1767225600000,
+        cashier: 'Thu ngân',
+        syncState: 'legacy',
+        provisionalCode: false,
+        cashierId: '',
+        voided: true,
+      },
+      {
+        id: 'order-2',
+        clientId: 'order-2',
+        code: 'HD-002',
+        tableId: null,
+        tableName: 'Mang đi',
+        items,
+        subtotal: chicken.price,
+        discountAmount: 0,
+        tax: 0,
+        total: chicken.price,
+        method: 'cash',
+        note: '',
+        createdAt: 1767225600000,
+        cashier: 'Thu ngân',
+        syncState: 'legacy',
+        provisionalCode: false,
+        cashierId: '',
+      },
+    ]
+    const queue = [
+      {
+        id: 'order-2',
+        kind: 'CREATE_ORDER',
+        state: 'pending',
+        payload: {
+          clientId: 'order-2',
+          items: [{ menuItemId: chicken.id, qty: 1 }],
+          payment: { method: 'CASH' },
+        },
+        idempotencyKey: 'order-2',
+        attempts: 0,
+        nextAttemptAt: 0,
+        createdAt: 1767225600000,
+      },
+    ]
+    const openOrders = {
+      'ban-5': {
+        cart,
+        discount: { type: 'amount', value: 0 },
+        note: 'Bàn 5',
+        updatedAt: 1767225600000,
+      },
+    }
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart,
+          tableId: 'ban-5',
+          discount: { type: 'amount', value: 0 },
+          note: 'Đang mở',
+          drafts,
+          history,
+          queue,
+          openOrders,
+        },
+        version: 3,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    const state = usePOSStore.getState()
+    expect(state.cart).toEqual(cart)
+    expect(state.drafts).toEqual(drafts)
+    expect(state.queue).toEqual(queue)
+    expect(state.openOrders).toEqual(openOrders)
+    expect(state.history.map((order) => order.status)).toEqual([
+      'cancelled',
+      'completed',
+    ])
+    expect(state.editingPendingOrderId).toBeNull()
+
+    usePOSStore.getState().addItem(coffee.id)
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(parsed.version).toBe(4)
+    expect(parsed.state.editingPendingOrderId).toBeNull()
+  })
+
+  it('restores editingPendingOrderId from a valid v4 snapshot', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+          openOrders: {},
+          editingPendingOrderId: 'order-42',
+        },
+        version: 4,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().editingPendingOrderId).toBe('order-42')
+  })
+
+  it('defaults a corrupt editingPendingOrderId to null', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+          openOrders: {},
+          editingPendingOrderId: 42,
+        },
+        version: 4,
+      }),
+    )
+
+    await expect(usePOSStore.persist.rehydrate()).resolves.not.toThrow()
+
+    expect(usePOSStore.getState().editingPendingOrderId).toBeNull()
+
+    usePOSStore.getState().addItem(chicken.id)
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(parsed.version).toBe(4)
+    expect(parsed.state.editingPendingOrderId).toBeNull()
+  })
+
+  it('upgrades a v2 snapshot to v4 with empty open orders', async () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -324,14 +509,16 @@ describe('persistence', () => {
     await usePOSStore.persist.rehydrate()
 
     expect(usePOSStore.getState().openOrders).toEqual({})
+    expect(usePOSStore.getState().editingPendingOrderId).toBeNull()
 
     usePOSStore.getState().addItem(chicken.id)
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
-    expect(parsed.version).toBe(3)
+    expect(parsed.version).toBe(4)
+    expect(parsed.state.editingPendingOrderId).toBeNull()
     expect(parsed.state.openOrders).toEqual({})
   })
 
-  it('restores open orders from a v3 snapshot', async () => {
+  it('restores open orders from a v4 snapshot', async () => {
     const snapshot = {
       cart: [
         {
@@ -360,8 +547,9 @@ describe('persistence', () => {
           history: [],
           queue: [],
           openOrders: { 'ban-5': snapshot },
+          editingPendingOrderId: null,
         },
-        version: 3,
+        version: 4,
       }),
     )
 
@@ -383,8 +571,9 @@ describe('persistence', () => {
           history: [],
           queue: [],
           openOrders: 'bad',
+          editingPendingOrderId: null,
         },
-        version: 3,
+        version: 4,
       }),
     )
 
@@ -414,7 +603,8 @@ describe('persistence', () => {
     })
 
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
-    expect(parsed.version).toBe(3)
+    expect(parsed.version).toBe(4)
+    expect(parsed.state.editingPendingOrderId).toBeNull()
     expect(parsed.state.openOrders['ban-5']).toMatchObject({
       note: 'Mang ra sau',
       cart: [{ menuItemId: chicken.id, qty: 1, served: false }],
