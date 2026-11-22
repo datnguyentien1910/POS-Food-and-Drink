@@ -208,6 +208,10 @@ export interface LocalOrder extends OrderRecord {
   provisionalCode: boolean
   cashierId: string
   serverId?: string
+  /** Kept on local pending orders so `resumePendingOrder` can restore the discount. */
+  discount?: Discount
+  /** Last time a local order was saved, paid or cancelled. */
+  updatedAt?: number
 }
 
 /** Persisted store shape after the v2 migration. */

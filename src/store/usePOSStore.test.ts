@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TABLES } from '../data/catalog-seed'
 import { MENU_ITEMS } from '../data/menu'
+import type { LocalOrder } from '../types'
 import { useCatalogStore } from './useCatalogStore'
 import { usePOSStore } from './usePOSStore'
 
@@ -186,12 +187,14 @@ describe('completeOrder', () => {
         name: chicken.name,
         unitPrice: chicken.price,
         qty: 1,
+        served: false,
       },
       {
         menuItemId: coffee.id,
         name: coffee.name,
         unitPrice: coffee.price,
         qty: 2,
+        served: false,
       },
     ])
     expect(order!.code).toMatch(/^OFF-[0-9A-F]{8}$/)
@@ -692,6 +695,7 @@ describe('offline queue', () => {
     expect(state.queue).toEqual([])
     expect(state.history[0].voided).toBe(true)
     expect(state.history[0].syncState).toBe('voided')
+    expect(state.history[0].status).toBe('cancelled')
   })
 })
 
@@ -925,5 +929,277 @@ describe('open orders', () => {
 
     const payload = usePOSStore.getState().queue[0].payload
     expect('tableId' in payload ? payload.tableId : undefined).toBe(serverId)
+  })
+})
+
+describe('pending orders', () => {
+  beforeEach(resetStore)
+  afterEach(() => useCatalogStore.setState({ tables: TABLES }))
+
+  const saveChickenOnBan5 = () => {
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().addItem(chicken.id)
+    return usePOSStore.getState().savePendingOrder()!
+  }
+
+  it('assigns a table without stashing the active cart', () => {
+    usePOSStore.getState().switchTable('ban-1')
+    usePOSStore.getState().addItem(chicken.id)
+
+    usePOSStore.getState().assignTable('ban-2')
+
+    const state = usePOSStore.getState()
+    expect(state.tableId).toBe('ban-2')
+    expect(state.cart).toHaveLength(1)
+    expect(state.openOrders).toEqual({})
+  })
+
+  it('saves one pending order and upserts the same record after resuming', () => {
+    const first = saveChickenOnBan5()
+    expect(first.status).toBe('pending_payment')
+    expect(first.clientId).toBe(first.id)
+    expect(first.code).toMatch(/^OFF-[0-9A-F]{8}$/)
+
+    usePOSStore.getState().resumePendingOrder(first.id)
+    expect(usePOSStore.getState().editingPendingOrderId).toBe(first.id)
+
+    usePOSStore.getState().addItem(coffee.id)
+    const second = usePOSStore.getState().savePendingOrder()!
+
+    const state = usePOSStore.getState()
+    expect(state.history).toHaveLength(1)
+    expect(second.id).toBe(first.id)
+    expect(second.clientId).toBe(first.clientId)
+    expect(second.items.map((line) => line.menuItemId)).toEqual([
+      chicken.id,
+      coffee.id,
+    ])
+    expect(second.status).toBe('pending_payment')
+    expect(state.editingPendingOrderId).toBeNull()
+  })
+
+  it('clears the active cart and the table snapshot when saving a pending order', () => {
+    usePOSStore.setState({
+      openOrders: {
+        'ban-5': {
+          cart: [{ lineId: 'old', menuItemId: coffee.id, qty: 1, served: false }],
+          discount: { type: 'amount', value: 0 },
+          note: 'Cũ',
+          updatedAt: 1,
+        },
+      },
+    })
+
+    const order = saveChickenOnBan5()
+
+    const state = usePOSStore.getState()
+    expect(state.cart).toEqual([])
+    expect(state.tableId).toBeNull()
+    expect(state.note).toBe('')
+    expect(state.discount).toEqual({ type: 'amount', value: 0 })
+    expect(state.openOrders['ban-5']).toBeUndefined()
+    expect(state.history[0]).toMatchObject({
+      id: order.id,
+      status: 'pending_payment',
+      tableId: 'ban-5',
+      tableName: 'Bàn 05',
+      syncState: 'pending',
+      provisionalCode: true,
+    })
+  })
+
+  it('stashes the active cart when resuming a pending order', () => {
+    const order = saveChickenOnBan5()
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().setNote('Giỏ cũ')
+    usePOSStore.setState({
+      openOrders: {
+        'ban-5': {
+          cart: [{ lineId: 'stale', menuItemId: coffee.id, qty: 2 }],
+          discount: { type: 'amount', value: 0 },
+          note: 'Snapshot cũ',
+          updatedAt: 1,
+        },
+      },
+    })
+
+    usePOSStore.getState().resumePendingOrder(order.id)
+
+    const state = usePOSStore.getState()
+    expect(state.openOrders.__takeaway__).toMatchObject({
+      note: 'Giỏ cũ',
+      cart: [{ menuItemId: coffee.id }],
+    })
+    expect(state.openOrders['ban-5']).toBeUndefined()
+    expect(state.cart.map((line) => line.menuItemId)).toEqual([chicken.id])
+    expect(state.editingPendingOrderId).toBe(order.id)
+  })
+
+  it('restores served lines, note, discount and table when resuming', () => {
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().addItem(chicken.id)
+    const firstId = usePOSStore.getState().cart[0].lineId
+    usePOSStore.getState().setLineServed(firstId, true)
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().setNote('Ít đá')
+    usePOSStore.getState().setDiscount({ type: 'percent', value: 10 })
+    const order = usePOSStore.getState().savePendingOrder()!
+
+    expect(order.items.map((line) => line.served)).toEqual([true, false])
+
+    usePOSStore.getState().resumePendingOrder(order.id)
+
+    const state = usePOSStore.getState()
+    expect(state.tableId).toBe('ban-5')
+    expect(state.note).toBe('Ít đá')
+    expect(state.discount).toEqual({ type: 'percent', value: 10 })
+    expect(state.cart).toEqual([
+      {
+        lineId: `${order.id}:0`,
+        menuItemId: chicken.id,
+        qty: 1,
+        unitPrice: chicken.price,
+        name: chicken.name,
+        served: true,
+      },
+      {
+        lineId: `${order.id}:1`,
+        menuItemId: coffee.id,
+        qty: 1,
+        unitPrice: coffee.price,
+        name: coffee.name,
+        served: false,
+      },
+    ])
+  })
+
+  it('pays a pending order with its clientId and marks it completed', () => {
+    const order = saveChickenOnBan5()
+
+    const paid = usePOSStore.getState().payPendingOrder(order.id, {
+      method: 'cash',
+      received: 200000,
+      change: 90000,
+      expectedTotal: 119900,
+    })!
+
+    expect(paid.status).toBe('completed')
+    expect(paid.id).toBe(order.id)
+    expect(paid.method).toBe('cash')
+    const state = usePOSStore.getState()
+    expect(state.history).toHaveLength(1)
+    expect(state.history[0].status).toBe('completed')
+    expect(state.queue).toHaveLength(1)
+    expect(state.queue[0]).toMatchObject({
+      id: order.clientId,
+      kind: 'CREATE_ORDER',
+      idempotencyKey: order.clientId,
+      expectedTotal: 119900,
+    })
+    expect(state.queue[0].payload).toMatchObject({
+      clientId: order.clientId,
+      payment: { method: 'CASH', received: 200000 },
+      expectedTotal: 119900,
+    })
+    expect(state.editingPendingOrderId).toBeNull()
+  })
+
+  it('cancels a pending order and drops its queue item', () => {
+    const order = saveChickenOnBan5()
+    usePOSStore.setState({
+      editingPendingOrderId: order.id,
+      queue: [
+        {
+          id: order.clientId,
+          kind: 'CREATE_ORDER',
+          state: 'pending',
+          payload: {
+            clientId: order.clientId,
+            items: [],
+            payment: { method: 'CASH' },
+          },
+          idempotencyKey: order.clientId,
+          attempts: 0,
+          nextAttemptAt: 0,
+          createdAt: 1,
+        },
+      ],
+    })
+
+    usePOSStore.getState().cancelPendingOrder(order.id)
+
+    const state = usePOSStore.getState()
+    expect(state.history[0].status).toBe('cancelled')
+    expect(state.queue).toEqual([])
+    expect(state.editingPendingOrderId).toBeNull()
+    expect(state.isTableBusy('ban-5')).toBe(false)
+  })
+
+  it('treats pending orders as busy except the one being edited', () => {
+    const order = saveChickenOnBan5()
+    expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(true)
+    expect(usePOSStore.getState().isTableBusy('ban-1')).toBe(false)
+
+    usePOSStore.getState().resumePendingOrder(order.id)
+    expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(true)
+
+    // Move the active cart off the table: the pending row being edited must
+    // not keep the table busy on its own.
+    usePOSStore.getState().assignTable(null)
+    expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(false)
+
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().savePendingOrder()
+    expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(true)
+
+    usePOSStore.getState().cancelPendingOrder(order.id)
+    expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(false)
+  })
+
+  it('keeps served flags on completed order snapshots', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    const firstId = usePOSStore.getState().cart[0].lineId
+    usePOSStore.getState().setLineServed(firstId, true)
+    usePOSStore.getState().addItem(coffee.id)
+
+    const order = usePOSStore.getState().completeOrder({ method: 'cash' })!
+
+    expect(order.items.map((line) => line.served)).toEqual([true, false])
+  })
+
+  it('clears the editing pointer on reset and draft save', () => {
+    const order = saveChickenOnBan5()
+    usePOSStore.getState().resumePendingOrder(order.id)
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().resetOrder()
+    expect(usePOSStore.getState().editingPendingOrderId).toBeNull()
+
+    usePOSStore.setState({ editingPendingOrderId: order.id })
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().saveDraft()
+    expect(usePOSStore.getState().editingPendingOrderId).toBeNull()
+  })
+
+  it('marks voided orders as cancelled', () => {
+    const order = saveChickenOnBan5()
+    const base: LocalOrder = {
+      ...order,
+      status: 'completed',
+      serverId: 'srv-1',
+      syncState: 'synced',
+      provisionalCode: false,
+    }
+
+    usePOSStore.setState({ history: [base], queue: [] })
+    usePOSStore.getState().enqueueVoid('srv-1', 'Khách đổi ý')
+    expect(usePOSStore.getState().history[0].status).toBe('cancelled')
+
+    usePOSStore.setState({ history: [base], queue: [] })
+    usePOSStore.getState().markVoided('srv-1')
+    expect(usePOSStore.getState().history[0].status).toBe('cancelled')
+
+    usePOSStore.setState({ history: [base], queue: [] })
+    usePOSStore.getState().voidLocalOrder(order.clientId, 'Khách đổi ý')
+    expect(usePOSStore.getState().history[0].status).toBe('cancelled')
   })
 })

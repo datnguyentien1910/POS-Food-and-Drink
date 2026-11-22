@@ -68,6 +68,11 @@ interface POSState extends PersistedPOS {
   resetOrder: () => void
   setTable: (tableId: string | null) => void
   switchTable: (tableId: string | null) => void
+  assignTable: (tableId: string | null) => void
+  savePendingOrder: () => LocalOrder | null
+  resumePendingOrder: (orderId: string) => void
+  payPendingOrder: (orderId: string, input: CompleteOrderInput) => LocalOrder | null
+  cancelPendingOrder: (orderId: string) => void
   setLineServed: (lineId: string, served: boolean) => void
   setAllServed: () => void
   isTableBusy: (tableId: string) => boolean
@@ -378,6 +383,58 @@ function provisionalCode(clientId: string): string {
   return `OFF-${clientId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
 }
 
+/** Snapshots cart lines, keeping `served` so pending orders can be resumed. */
+function orderLinesFromCart(cart: CartLine[]): OrderLineSnapshot[] {
+  return cart.map((line) => {
+    const item = resolveMenuItem(line.menuItemId)
+    return {
+      menuItemId: line.menuItemId,
+      name: line.name ?? item?.name ?? 'Món',
+      unitPrice: line.unitPrice ?? item?.price ?? 0,
+      qty: line.qty,
+      served: line.served === true,
+    }
+  })
+}
+
+function payloadItemsFromLines(
+  items: OrderLineSnapshot[],
+): CreateOrderPayload['items'] {
+  return items.map((item) => ({
+    menuItemId: resolveMenuItem(item.menuItemId)?.serverId ?? item.menuItemId,
+    qty: item.qty,
+  }))
+}
+
+function payloadDiscount(
+  discount: Discount | undefined,
+): CreateOrderPayload['discount'] | undefined {
+  if (!discount || discount.value <= 0) return undefined
+  return {
+    type: discount.type === 'percent' ? 'PERCENT' : 'AMOUNT',
+    value: discount.value,
+  }
+}
+
+function createOrderQueueItem(
+  clientId: string,
+  payload: CreateOrderPayload,
+  expected: number,
+  now: number,
+): SyncItem {
+  return {
+    id: clientId,
+    kind: 'CREATE_ORDER',
+    state: 'pending',
+    payload,
+    idempotencyKey: clientId,
+    expectedTotal: expected,
+    attempts: 0,
+    nextAttemptAt: 0,
+    createdAt: now,
+  }
+}
+
 function pruneHistory(history: LocalOrder[]): LocalOrder[] {
   if (history.length <= HISTORY_LIMIT) return history
   const keep: LocalOrder[] = []
@@ -479,6 +536,7 @@ export const usePOSStore = create<POSState>()(
         set((state) => ({
           ...emptyOrder(),
           openOrders: withoutSnapshot(state.openOrders, state.tableId),
+          editingPendingOrderId: null,
         })),
 
       setTable: (tableId) => get().switchTable(tableId),
@@ -520,6 +578,188 @@ export const usePOSStore = create<POSState>()(
         })
       },
 
+      assignTable: (tableId) => set({ tableId }),
+
+      savePendingOrder: () => {
+        const state = get()
+        if (state.cart.length === 0) return null
+
+        const items = orderLinesFromCart(state.cart)
+        const totals = calcTotals(
+          items.map((item) => ({ unitPrice: item.unitPrice, qty: item.qty })),
+          state.discount,
+          RESTAURANT.taxRate,
+        )
+        const now = Date.now()
+        const editingId = state.editingPendingOrderId
+        const editing =
+          editingId === null
+            ? undefined
+            : state.history.find(
+                (order) =>
+                  order.id === editingId &&
+                  order.status === 'pending_payment',
+              )
+
+        let order: LocalOrder
+        if (editing) {
+          order = {
+            ...editing,
+            tableId: state.tableId,
+            tableName: resolveTableName(state.tableId),
+            items,
+            ...totals,
+            discount: { ...state.discount },
+            note: state.note,
+            updatedAt: now,
+          }
+        } else {
+          const clientId = makeId()
+          const authUser = useAuthStore.getState().user
+          order = {
+            id: clientId,
+            clientId,
+            code: provisionalCode(clientId),
+            provisionalCode: true,
+            syncState: 'pending',
+            tableId: state.tableId,
+            tableName: resolveTableName(state.tableId),
+            items,
+            ...totals,
+            method: 'cash',
+            discount: { ...state.discount },
+            note: state.note,
+            createdAt: now,
+            updatedAt: now,
+            cashier: authUser?.name ?? RESTAURANT.cashier,
+            status: 'pending_payment',
+            cashierId: authUser?.id ?? '',
+          }
+        }
+
+        set((prev) => ({
+          history: editing
+            ? prev.history.map((item) => (item.id === editing.id ? order : item))
+            : pruneHistory([order, ...prev.history]),
+          ...emptyOrder(),
+          editingPendingOrderId: null,
+          openOrders: withoutSnapshot(
+            withoutSnapshot(prev.openOrders, prev.tableId),
+            order.tableId,
+          ),
+        }))
+        return order
+      },
+
+      resumePendingOrder: (orderId) => {
+        const state = get()
+        const order = state.history.find(
+          (item) =>
+            item.id === orderId && item.status === 'pending_payment',
+        )
+        if (!order) return
+
+        let openOrders = stashSnapshot(
+          state.openOrders,
+          state.tableId,
+          state.cart,
+          state.discount,
+          state.note,
+        )
+        openOrders = withoutSnapshot(openOrders, order.tableId)
+
+        set({
+          cart: order.items.map((line, index) => ({
+            lineId: `${order.id}:${index}`,
+            menuItemId: line.menuItemId,
+            qty: line.qty,
+            unitPrice: line.unitPrice,
+            name: line.name,
+            served: line.served === true,
+          })),
+          discount: order.discount
+            ? { ...order.discount }
+            : { type: 'amount', value: order.discountAmount },
+          note: order.note,
+          tableId: order.tableId,
+          openOrders,
+          editingPendingOrderId: order.id,
+        })
+      },
+
+      payPendingOrder: (orderId, input) => {
+        const state = get()
+        const order = state.history.find(
+          (item) =>
+            item.id === orderId && item.status === 'pending_payment',
+        )
+        if (!order) return null
+
+        const table = resolveTable(order.tableId)
+        const expected = input.expectedTotal ?? order.total
+        const discount = payloadDiscount(order.discount)
+        const payload: CreateOrderPayload = {
+          clientId: order.clientId,
+          items: payloadItemsFromLines(order.items),
+          payment: {
+            method: SERVER_METHOD[input.method],
+            ...(input.method === 'cash' && input.received !== undefined
+              ? { received: input.received }
+              : {}),
+          },
+          expectedTotal: expected,
+          ...(table?.serverId ? { tableId: table.serverId } : {}),
+          ...(order.note ? { note: order.note } : {}),
+          ...(discount ? { discount } : {}),
+        }
+        const now = Date.now()
+        const paid: LocalOrder = {
+          ...order,
+          status: 'completed',
+          method: input.method,
+          ...(input.method === 'cash' && input.received !== undefined
+            ? { received: input.received, change: input.change }
+            : {}),
+          updatedAt: now,
+        }
+
+        set((prev) => ({
+          history: prev.history.map((item) => (item.id === order.id ? paid : item)),
+          queue: [
+            ...prev.queue.filter((item) => item.id !== order.clientId),
+            createOrderQueueItem(order.clientId, payload, expected, now),
+          ],
+          openOrders: withoutSnapshot(prev.openOrders, order.tableId),
+          editingPendingOrderId:
+            prev.editingPendingOrderId === order.id
+              ? null
+              : prev.editingPendingOrderId,
+        }))
+
+        triggerSync()
+        return paid
+      },
+
+      cancelPendingOrder: (orderId) => {
+        const state = get()
+        const order = state.history.find((item) => item.id === orderId)
+        if (!order) return
+
+        set((prev) => ({
+          history: prev.history.map((item) =>
+            item.id === orderId
+              ? { ...item, status: 'cancelled', updatedAt: Date.now() }
+              : item,
+          ),
+          queue: prev.queue.filter((item) => item.id !== order.clientId),
+          openOrders: withoutSnapshot(prev.openOrders, order.tableId),
+          editingPendingOrderId:
+            prev.editingPendingOrderId === orderId
+              ? null
+              : prev.editingPendingOrderId,
+        }))
+      },
+
       setLineServed: (lineId, served) =>
         set((state) => ({
           cart: state.cart.map((line) =>
@@ -536,7 +776,15 @@ export const usePOSStore = create<POSState>()(
         const state = get()
         const active = state.tableId === tableId && state.cart.length > 0
         const snapshot = state.openOrders[orderKey(tableId)]
-        return active || (snapshot !== undefined && snapshot.cart.length > 0)
+        const pending = state.history.some(
+          (order) =>
+            order.status === 'pending_payment' &&
+            order.tableId === tableId &&
+            order.id !== state.editingPendingOrderId,
+        )
+        return (
+          active || (snapshot !== undefined && snapshot.cart.length > 0) || pending
+        )
       },
 
       setDiscount: (discount) => set({ discount }),
@@ -560,6 +808,7 @@ export const usePOSStore = create<POSState>()(
           drafts: [draft, ...state.drafts],
           ...emptyOrder(),
           openOrders: withoutSnapshot(state.openOrders, state.tableId),
+          editingPendingOrderId: null,
         })
       },
 
@@ -600,19 +849,8 @@ export const usePOSStore = create<POSState>()(
         const state = get()
         if (state.cart.length === 0) return null
 
-        const items: OrderLineSnapshot[] = []
-        const payloadItems: CreateOrderPayload['items'] = []
-
-        for (const line of state.cart) {
-          const item = resolveMenuItem(line.menuItemId)
-          const unitPrice = line.unitPrice ?? item?.price ?? 0
-          const name = line.name ?? item?.name ?? 'Món'
-          items.push({ menuItemId: line.menuItemId, name, unitPrice, qty: line.qty })
-          payloadItems.push({
-            menuItemId: item?.serverId ?? line.menuItemId,
-            qty: line.qty,
-          })
-        }
+        const items = orderLinesFromCart(state.cart)
+        const payloadItems = payloadItemsFromLines(items)
 
         if (items.length === 0) return null
 
@@ -627,6 +865,7 @@ export const usePOSStore = create<POSState>()(
         const now = Date.now()
         const table = resolveTable(state.tableId)
         const expected = expectedTotal ?? totals.total
+        const discount = payloadDiscount(state.discount)
 
         const order: LocalOrder = {
           id: clientId,
@@ -659,27 +898,10 @@ export const usePOSStore = create<POSState>()(
           expectedTotal: expected,
           ...(table?.serverId ? { tableId: table.serverId } : {}),
           ...(state.note ? { note: state.note } : {}),
-          ...(state.discount.value > 0
-            ? {
-                discount: {
-                  type: state.discount.type === 'percent' ? 'PERCENT' : 'AMOUNT',
-                  value: state.discount.value,
-                },
-              }
-            : {}),
+          ...(discount ? { discount } : {}),
         }
 
-        const syncItem: SyncItem = {
-          id: clientId,
-          kind: 'CREATE_ORDER',
-          state: 'pending',
-          payload,
-          idempotencyKey: clientId,
-          expectedTotal: expected,
-          attempts: 0,
-          nextAttemptAt: 0,
-          createdAt: now,
-        }
+        const syncItem = createOrderQueueItem(clientId, payload, expected, now)
 
         set({
           history: pruneHistory([order, ...state.history]),
@@ -816,7 +1038,12 @@ export const usePOSStore = create<POSState>()(
             queue: [...state.queue, item],
             history: state.history.map((order) =>
               order.serverId === serverId
-                ? { ...order, voided: true, voidReason: reason }
+                ? {
+                    ...order,
+                    voided: true,
+                    voidReason: reason,
+                    status: 'cancelled',
+                  }
                 : order,
             ),
           }
@@ -829,7 +1056,7 @@ export const usePOSStore = create<POSState>()(
           queue: state.queue.filter((item) => item.id !== serverId),
           history: state.history.map((order) =>
             order.serverId === serverId
-              ? { ...order, voided: true }
+              ? { ...order, voided: true, status: 'cancelled' }
               : order,
           ),
         }))
@@ -848,6 +1075,7 @@ export const usePOSStore = create<POSState>()(
                   voided: true,
                   voidReason: reason,
                   syncState: 'voided',
+                  status: 'cancelled',
                 }
               : order,
           ),
