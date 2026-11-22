@@ -1,8 +1,6 @@
 import {
   Armchair,
   Banknote,
-  Check,
-  CheckCheck,
   CheckCircle2,
   ChevronDown,
   CreditCard,
@@ -12,7 +10,7 @@ import {
   ReceiptText,
   ShoppingBag,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RESTAURANT } from '../../config'
 import { getMenuItem } from '../../data/menu'
 import { tableName } from '../../data/tables'
@@ -89,6 +87,8 @@ export function OrderModal({
   const setPendingLineServed = usePOSStore(
     (state) => state.setPendingLineServed,
   )
+  const setPendingLineQty = usePOSStore((state) => state.setPendingLineQty)
+  const removePendingLine = usePOSStore((state) => state.removePendingLine)
   const setAllPendingServed = usePOSStore(
     (state) => state.setAllPendingServed,
   )
@@ -110,9 +110,20 @@ export function OrderModal({
   // An explicit prop (including `null`) wins over the active store table.
   const sourceTableId = tableId !== undefined ? tableId : storeTableId
 
+  // A resumed order keeps its original ids in the active cart. Render those
+  // (not the shifted history indices) so a later edit still hits the same line.
+  const editedLineIds = cart
+    .filter(
+      (line) => orderId !== undefined && line.lineId.startsWith(`${orderId}:`),
+    )
+    .map((line) => line.lineId)
+
   const pendingItems: CartLine[] = pendingOrder
     ? pendingOrder.items.map((item, index) => ({
-        lineId: `${pendingOrder.id}:${index}`,
+        lineId:
+          (isPendingMode && editingPendingOrderId === orderId
+            ? editedLineIds[index]
+            : undefined) ?? `${pendingOrder.id}:${index}`,
         menuItemId: item.menuItemId,
         qty: item.qty,
         unitPrice: item.unitPrice,
@@ -138,13 +149,17 @@ export function OrderModal({
     RESTAURANT.taxRate,
   )
 
+  // Pending edits patch the history row directly, so its stored totals are
+  // stale. Always derive the displayed totals from the lines we render.
   const viewTotals: Totals = isPendingMode
-    ? {
-        subtotal: pendingOrder?.subtotal ?? 0,
-        discountAmount: pendingOrder?.discountAmount ?? 0,
-        tax: pendingOrder?.tax ?? 0,
-        total: pendingOrder?.total ?? 0,
-      }
+    ? calcTotals(
+        pendingItems.map((line) => ({
+          unitPrice: line.unitPrice ?? getMenuItem(line.menuItemId)?.price ?? 0,
+          qty: line.qty,
+        })),
+        viewDiscount,
+        RESTAURANT.taxRate,
+      )
     : totals
 
   const [method, setMethod] = useState<PaymentMethod>('cash')
@@ -160,6 +175,15 @@ export function OrderModal({
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [modeKey, setModeKey] = useState(`${open}:${orderId ?? ''}`)
   const [lastPropTableId, setLastPropTableId] = useState(tableId)
+
+  // Editing a pending line changes the total while the modal stays open; keep
+  // the cash field in step with it so the change never shows a stale amount.
+  const lastViewTotal = useRef(viewTotals.total)
+  useEffect(() => {
+    if (lastViewTotal.current === viewTotals.total) return
+    lastViewTotal.current = viewTotals.total
+    setReceivedInput(viewTotals.total > 0 ? String(viewTotals.total) : '')
+  }, [viewTotals.total])
 
   const displayTableId = isPendingMode
     ? (pendingOrder?.tableId ?? null)
@@ -337,6 +361,26 @@ export function OrderModal({
     setConfirmedUnserved(false)
   }
 
+  // Both modes render the same row; only the backing store action differs.
+  const lineActions = (line: CartLine) =>
+    isPendingMode && orderId !== undefined
+      ? {
+          onIncrement: () =>
+            setPendingLineQty(orderId, line.lineId, line.qty + 1),
+          onDecrement: () =>
+            setPendingLineQty(orderId, line.lineId, line.qty - 1),
+          onRemove: () => removePendingLine(orderId, line.lineId),
+          onToggleServed: () =>
+            setPendingLineServed(orderId, line.lineId, line.served !== true),
+        }
+      : {
+          onIncrement: () => increment(line.lineId),
+          onDecrement: () => decrement(line.lineId),
+          onRemove: () => removeItem(line.lineId),
+          onToggleServed: () =>
+            setLineServed(line.lineId, line.served !== true),
+        }
+
   const methodLabel =
     METHODS.find((option) => option.id === completed?.method)?.label ?? ''
 
@@ -508,77 +552,14 @@ export function OrderModal({
 
               {viewCart.length > 0 ? (
                 <div className="mt-2 divide-y divide-line rounded-xl border border-line px-3">
-                  {isPendingMode
-                    ? viewCart.map((line) => {
-                        const served = line.served === true
-                        return (
-                          <div
-                            key={line.lineId}
-                            className="flex items-center justify-between gap-2 py-3 text-xs"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate font-medium text-ink">
-                                {line.name ??
-                                  getMenuItem(line.menuItemId)?.name ??
-                                  'Món'}
-                                <span className="ml-1 text-muted tabular-nums">
-                                  ×{line.qty}
-                                </span>
-                              </p>
-                              <p className="mt-0.5 text-[10px] text-faint">
-                                Số lượng cố định · dùng “Thêm món” để chỉnh sửa
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              <span className="font-semibold text-ink tabular-nums">
-                                {formatVND(
-                                  (line.unitPrice ??
-                                    getMenuItem(line.menuItemId)?.price ??
-                                    0) * line.qty,
-                                )}
-                              </span>
-                              <Button
-                                size="sm"
-                                variant={served ? 'ghost' : 'secondary'}
-                                aria-pressed={served}
-                                onClick={() =>
-                                  orderId !== undefined &&
-                                  setPendingLineServed(
-                                    orderId,
-                                    line.lineId,
-                                    !served,
-                                  )
-                                }
-                                className={
-                                  served
-                                    ? 'h-8 shrink-0 px-2.5 text-[11px] text-positive hover:bg-positive-soft hover:text-positive'
-                                    : 'h-8 shrink-0 px-2.5 text-[11px]'
-                                }
-                              >
-                                {served ? (
-                                  <CheckCheck size={13} />
-                                ) : (
-                                  <Check size={13} />
-                                )}
-                                {served ? 'Đã ra' : 'Mang ra'}
-                              </Button>
-                            </div>
-                          </div>
-                        )
-                      })
-                    : cart.map((line) => (
-                        <CartRow
-                          key={line.lineId}
-                          line={line}
-                          onIncrement={() => increment(line.lineId)}
-                          onDecrement={() => decrement(line.lineId)}
-                          onRemove={() => removeItem(line.lineId)}
-                          showServed
-                          onToggleServed={() =>
-                            setLineServed(line.lineId, line.served !== true)
-                          }
-                        />
-                      ))}
+                  {viewCart.map((line) => (
+                    <CartRow
+                      key={line.lineId}
+                      line={line}
+                      showServed
+                      {...lineActions(line)}
+                    />
+                  ))}
                 </div>
               ) : null}
             </section>

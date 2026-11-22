@@ -492,7 +492,7 @@ describe('OrderModal — chế độ đơn chờ', () => {
     expect(screen.getByText('Bàn 05')).toBeInTheDocument()
     expect(screen.getByText(/Gà nướng/)).toBeInTheDocument()
     expect(screen.getByText(/Nước chanh/)).toBeInTheDocument()
-    expect(screen.getByText('Đã ra')).toBeInTheDocument()
+    expect(screen.getAllByText('Đã ra').length).toBeGreaterThan(0)
     expect(screen.getByText('Ít đá')).toBeInTheDocument()
     expect(screen.getByText(/Giảm giá \(10%\)/)).toBeInTheDocument()
     expect(screen.queryByText('Bánh chocolate')).not.toBeInTheDocument()
@@ -794,5 +794,122 @@ describe('OrderModal — chế độ đơn chờ', () => {
     expect(
       screen.queryByRole('button', { name: 'Chọn tất cả' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('edits quantities and removes lines from a pending order in the popup', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().addItem('nuoc-chanh')
+    usePOSStore.getState().addItem('khoai-tay-chien')
+    usePOSStore.getState().setDiscount({ type: 'percent', value: 10 })
+    const order = usePOSStore.getState().savePendingOrder()!
+
+    renderOrderModal(true, { orderId: order.id })
+
+    expect(screen.queryAllByText(/Số lượng cố định/)).toHaveLength(0)
+    await user.click(screen.getAllByRole('button', { name: 'Tăng số lượng' })[1])
+    await user.click(screen.getAllByRole('button', { name: 'Giảm số lượng' })[0])
+    await user.click(screen.getByRole('button', { name: 'Xoá Khoai tây chiên' }))
+
+    const expected = calcTotals(
+      [
+        { unitPrice: 109000, qty: 1 },
+        { unitPrice: 29000, qty: 2 },
+      ],
+      { type: 'percent', value: 10 },
+      RESTAURANT.taxRate,
+    )
+    const updated = usePOSStore
+      .getState()
+      .history.find((item) => item.id === order.id)!
+    expect(updated.items.map((item) => [item.menuItemId, item.qty])).toEqual([
+      ['ga-nuong', 1],
+      ['nuoc-chanh', 2],
+    ])
+    expect(updated).toMatchObject(expected)
+    expect(screen.getAllByText(formatVND(expected.total)).length).toBeGreaterThan(0)
+    expect(screen.getByRole('spinbutton', { name: 'Tiền khách đưa' })).toHaveValue(
+      expected.total,
+    )
+    expect(screen.getByText('Tiền thối lại').parentElement).toHaveTextContent(
+      formatVND(0),
+    )
+  })
+
+  it('locks the stepper and remove button of a served pending line', async () => {
+    const user = userEvent.setup()
+    const order = createPendingOrder({ serveFirst: true })
+    renderOrderModal(true, { orderId: order.id })
+
+    const decrements = screen.getAllByRole('button', { name: 'Giảm số lượng' })
+    const increments = screen.getAllByRole('button', { name: 'Tăng số lượng' })
+    expect(decrements[0]).toBeDisabled()
+    expect(increments[0]).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Xoá Gà nướng' })).toBeDisabled()
+    expect(increments[1]).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Xoá Nước chanh' })).toBeEnabled()
+
+    await user.click(decrements[0])
+    await user.click(increments[0])
+    await user.click(screen.getByRole('button', { name: 'Xoá Gà nướng' }))
+    await user.click(increments[1])
+    expect(decrements[1]).toBeEnabled()
+    await user.click(decrements[1])
+
+    const current = usePOSStore
+      .getState()
+      .history.find((item) => item.id === order.id)!
+    expect(current.items.map((item) => [item.menuItemId, item.qty])).toEqual([
+      ['ga-nuong', 1],
+      ['nuoc-chanh', 1],
+    ])
+    expect(current.items[0].served).toBe(true)
+  })
+
+  it('keeps line ids aligned with the active cart after removing a pending line', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().addItem('nuoc-chanh')
+    usePOSStore.getState().addItem('khoai-tay-chien')
+    usePOSStore.getState().addItem('khoai-tay-chien')
+    const order = usePOSStore.getState().savePendingOrder()!
+    usePOSStore.getState().resumePendingOrder(order.id)
+
+    renderOrderModal(true, { orderId: order.id })
+
+    await user.click(screen.getByRole('button', { name: 'Xoá Nước chanh' }))
+    await user.click(screen.getAllByRole('button', { name: 'Giảm số lượng' })[1])
+
+    const expectedItems = [
+      ['ga-nuong', 2],
+      ['khoai-tay-chien', 1],
+    ]
+    const state = usePOSStore.getState()
+    const patched = state.history.find((item) => item.id === order.id)!
+    expect(patched.items.map((item) => [item.menuItemId, item.qty])).toEqual(
+      expectedItems,
+    )
+    expect(state.cart.map((line) => [line.menuItemId, line.qty])).toEqual(
+      expectedItems,
+    )
+
+    const saved = state.savePendingOrder()!
+    expect(saved.items.map((item) => [item.menuItemId, item.qty])).toEqual(
+      expectedItems,
+    )
+    expect(saved.total).toBe(
+      calcTotals(
+        [
+          { unitPrice: 109000, qty: 2 },
+          { unitPrice: 39000, qty: 1 },
+        ],
+        { type: 'amount', value: 0 },
+        RESTAURANT.taxRate,
+      ).total,
+    )
   })
 })

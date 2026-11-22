@@ -352,7 +352,10 @@ describe('OrdersPage', () => {
     const dialog = screen.getByRole('dialog')
     expect(dialog).toHaveTextContent('Chi tiết đơn chờ')
     expect(dialog).toHaveTextContent('Bàn 09')
-    expect(dialog).toHaveTextContent(formatVND(345000))
+    // The popup recomputes totals from the snapshot lines, not the stale
+    // stored total of this hand-built pending order.
+    expect(dialog).toHaveTextContent(formatVND(117720))
+    expect(dialog).not.toHaveTextContent(formatVND(345000))
 
     await user.click(within(dialog).getByRole('button', { name: 'Thanh toán' }))
     await user.click(

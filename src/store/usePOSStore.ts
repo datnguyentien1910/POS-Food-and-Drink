@@ -468,9 +468,31 @@ function triggerSync(): void {
 }
 
 /**
+ * Pending rows are addressed as `${order.id}:${index}` when the order is only
+ * viewed in history. While it is being edited, the active cart holds the
+ * original (stable) ids: after a removal the snapshot indices shift, so the
+ * same id must still resolve to the same line in both history and cart.
+ */
+function pendingLineIndex(
+  state: POSState,
+  order: LocalOrder,
+  lineId: string,
+): number {
+  if (state.editingPendingOrderId === order.id) {
+    const owned = state.cart.filter((line) =>
+      line.lineId.startsWith(`${order.id}:`),
+    )
+    const position = owned.findIndex((line) => line.lineId === lineId)
+    if (position >= 0) return position
+  }
+  return order.items.findIndex(
+    (_line, index) => `${order.id}:${index}` === lineId,
+  )
+}
+
+/**
  * Shared patch for popup quantity edits. `qty <= 0` drops the line, otherwise
  * it is updated in place. Returns null when the target is not editable.
- * Lines are addressed as `${order.id}:${index}` by the modal.
  */
 function patchPendingLine(
   state: POSState,
@@ -483,9 +505,7 @@ function patchPendingLine(
   )
   if (!order) return null
 
-  const index = order.items.findIndex(
-    (_line, i) => `${order.id}:${i}` === lineId,
-  )
+  const index = pendingLineIndex(state, order, lineId)
   if (index < 0 || order.items[index].served === true) return null
 
   const remove = qty <= 0
@@ -509,21 +529,25 @@ function patchPendingLine(
     updatedAt: Date.now(),
   }
 
+  let syncedCart: CartLine[] | undefined
+  if (state.editingPendingOrderId === orderId) {
+    // A resumed order is saved back from the active cart. Patch the exact
+    // cart line by its original id so a later save cannot restore an old qty
+    // or bring a removed line back.
+    syncedCart = remove
+      ? state.cart.filter((line) => line.lineId !== lineId)
+      : state.cart.map((line) =>
+          line.lineId === lineId ? { ...line, qty } : line,
+        )
+  }
+
   return {
     history: state.history.map((item) =>
       item.id === order.id ? updated : item,
     ),
     // A resumed order is saved back from the active cart; mirror the patch so
     // savePendingOrder() cannot restore the old qty or bring the line back.
-    ...(state.editingPendingOrderId === orderId
-      ? {
-          cart: remove
-            ? state.cart.filter((line) => line.lineId !== lineId)
-            : state.cart.map((line) =>
-                line.lineId === lineId ? { ...line, qty } : line,
-              ),
-        }
-      : {}),
+    ...(syncedCart ? { cart: syncedCart } : {}),
   }
 }
 
@@ -874,10 +898,10 @@ export const usePOSStore = create<POSState>()(
               ? {
                   ...order,
                   updatedAt: Date.now(),
-                  // Pending lines are addressed as `${order.id}:${index}` by
-                  // the modal; only `served` changes, never qty or prices.
+                  // Only `served` changes, never qty or prices. Resolve the
+                  // id through the resumed cart when indices have shifted.
                   items: order.items.map((line, index) =>
-                    `${order.id}:${index}` === lineId
+                    index === pendingLineIndex(state, order, lineId)
                       ? { ...line, served }
                       : line,
                   ),
@@ -912,8 +936,12 @@ export const usePOSStore = create<POSState>()(
           order.id === orderId && order.status === 'pending_payment'
         const target = get().history.find(isTarget)
         if (!target) return
+        // Use the ids actually held by the resumed cart: after a removal the
+        // snapshot indices no longer match those original ids.
         const cartLineIds = new Set(
-          target.items.map((_line, index) => `${orderId}:${index}`),
+          get()
+            .cart.filter((line) => line.lineId.startsWith(`${orderId}:`))
+            .map((line) => line.lineId),
         )
 
         set((state) => ({

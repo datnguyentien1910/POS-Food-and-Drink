@@ -27,6 +27,9 @@ export function CartRow({
   const item = getMenuItem(line.menuItemId)
   if (!item) return null
 
+  // A pending snapshot may carry the name/price captured at save time.
+  const name = line.name ?? item.name
+  const unitPrice = line.unitPrice ?? item.price
   const served = line.served === true
   const canToggle = showServed && onToggleServed !== undefined
   const stepper = (
@@ -49,7 +52,7 @@ export function CartRow({
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <h3 className="truncate text-xs font-semibold text-ink">
-                {item.name}
+                {name}
               </h3>
               {served && canToggle ? (
                 <Badge tone="positive" className="shrink-0">
@@ -58,11 +61,11 @@ export function CartRow({
               ) : null}
             </div>
             <p className="mt-0.5 text-[11px] font-medium text-muted tabular-nums">
-              {formatVND(item.price)}
+              {formatVND(unitPrice)}
             </p>
           </div>
           <IconButton
-            label={`Xoá ${item.name}`}
+            label={`Xoá ${name}`}
             tone="danger"
             size="sm"
             onClick={onRemove}
@@ -95,7 +98,7 @@ export function CartRow({
             ) : null}
           </div>
           <p className="text-xs font-bold text-ink tabular-nums">
-            {formatVND(item.price * line.qty)}
+            {formatVND(unitPrice * line.qty)}
           </p>
         </div>
       </div>
