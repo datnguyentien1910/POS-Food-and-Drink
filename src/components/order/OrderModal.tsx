@@ -1,6 +1,8 @@
 import {
   Armchair,
   Banknote,
+  Check,
+  CheckCheck,
   CheckCircle2,
   ChevronDown,
   CreditCard,
@@ -30,6 +32,7 @@ import { ConfirmModal } from '../modals/ConfirmModal'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
 import { useToast } from '../ui/toast-context'
+import { CartRow } from './CartRow'
 import { NoteEditor } from './NoteEditor'
 import { OrderSummary } from './OrderSummary'
 
@@ -69,11 +72,27 @@ export function OrderModal({
   const storeTableId = usePOSStore((state) => state.tableId)
   const discount = usePOSStore((state) => state.discount)
   const assignTable = usePOSStore((state) => state.assignTable)
+  const increment = usePOSStore((state) => state.increment)
+  const decrement = usePOSStore((state) => state.decrement)
+  const removeItem = usePOSStore((state) => state.removeItem)
+  const setLineServed = usePOSStore((state) => state.setLineServed)
+  const setAllServed = usePOSStore((state) => state.setAllServed)
   const savePendingOrder = usePOSStore((state) => state.savePendingOrder)
   const completeOrder = usePOSStore((state) => state.completeOrder)
   const resumePendingOrder = usePOSStore((state) => state.resumePendingOrder)
   const payPendingOrder = usePOSStore((state) => state.payPendingOrder)
   const cancelPendingOrder = usePOSStore((state) => state.cancelPendingOrder)
+  // Pending-mode edits patch the history row directly; they never resume it.
+  const setPendingOrderTable = usePOSStore(
+    (state) => state.setPendingOrderTable,
+  )
+  const setPendingLineServed = usePOSStore(
+    (state) => state.setPendingLineServed,
+  )
+  const setAllPendingServed = usePOSStore(
+    (state) => state.setAllPendingServed,
+  )
+  const isTableBusy = usePOSStore((state) => state.isTableBusy)
   const editingPendingOrderId = usePOSStore(
     (state) => state.editingPendingOrderId,
   )
@@ -135,7 +154,9 @@ export function OrderModal({
   const [completed, setCompleted] = useState<OrderRecord | null>(null)
   const [confirmedUnserved, setConfirmedUnserved] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
-  const [selectedTableId, setSelectedTableId] = useState(sourceTableId)
+  const [selectedTableId, setSelectedTableId] = useState(() =>
+    isPendingMode ? (pendingOrder?.tableId ?? null) : sourceTableId,
+  )
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [modeKey, setModeKey] = useState(`${open}:${orderId ?? ''}`)
   const [lastPropTableId, setLastPropTableId] = useState(tableId)
@@ -306,6 +327,11 @@ export function OrderModal({
   }
 
   const chooseTable = (id: string | null) => {
+    // In pending mode the table belongs to the history row and must be saved
+    // immediately — there is no later "assign" commit step for that order.
+    if (isPendingMode && orderId !== undefined) {
+      setPendingOrderTable(orderId, id)
+    }
     setSelectedTableId(id)
     setTablePickerOpen(false)
     setConfirmedUnserved(false)
@@ -323,6 +349,7 @@ export function OrderModal({
     <>
       <Modal
         open={open}
+        size="xl"
         title={
           completed
             ? 'Hoàn tất thanh toán'
@@ -340,73 +367,6 @@ export function OrderModal({
               }`
         }
         onClose={handleClose}
-        footer={
-          completed ? undefined : isPendingMode ? (
-            <div className="space-y-2">
-              {showWarning ? (
-                <p
-                  role="status"
-                  className="rounded-xl border border-negative/20 bg-negative-soft px-3 py-2 text-center text-[11px] font-semibold text-negative"
-                >
-                  Còn {unserved} món chưa mang ra — vẫn thanh toán?
-                </p>
-              ) : null}
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="secondary"
-                  disabled={!pendingOrder}
-                  onClick={handleAddItems}
-                >
-                  <Plus size={15} />
-                  Thêm món
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={!pendingOrder}
-                  onClick={() => setCancelOpen(true)}
-                >
-                  Huỷ đơn
-                </Button>
-                <Button
-                  className="col-span-2"
-                  disabled={!canConfirm}
-                  onClick={handleConfirm}
-                >
-                  {showWarning ? 'Vẫn thanh toán' : 'Thanh toán'}
-                </Button>
-              </div>
-              <p className="text-center text-[10px] text-faint">
-                {isInsufficient
-                  ? 'Khách đưa chưa đủ tiền để thanh toán.'
-                  : 'Đơn sẽ được lưu vào lịch sử trên thiết bị này.'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {showWarning ? (
-                <p
-                  role="status"
-                  className="rounded-xl border border-negative/20 bg-negative-soft px-3 py-2 text-center text-[11px] font-semibold text-negative"
-                >
-                  Còn {unserved} món chưa mang ra — vẫn thanh toán?
-                </p>
-              ) : null}
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="secondary" disabled={!canSave} onClick={handleSavePending}>
-                  Lưu chờ thanh toán
-                </Button>
-                <Button disabled={!canConfirm} onClick={handleConfirm}>
-                  {showWarning ? 'Vẫn thanh toán' : 'Thanh toán'}
-                </Button>
-              </div>
-              <p className="text-center text-[10px] text-faint">
-                {isInsufficient
-                  ? 'Khách đưa chưa đủ tiền để thanh toán.'
-                  : 'Đơn sẽ được lưu trên máy này và có thể in lại hoá đơn.'}
-              </p>
-            </div>
-          )
-        }
       >
         {completed ? (
           <div className="py-2 text-center">
@@ -470,15 +430,10 @@ export function OrderModal({
             </div>
           </div>
         ) : (
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold text-muted">Bàn</span>
-              {isPendingMode ? (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-bg px-3 py-1.5 text-xs font-semibold text-ink">
-                  <Armchair size={14} className="text-primary" />
-                  {pendingOrder?.tableName ?? tableName(displayTableId)}
-                </span>
-              ) : (
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <section aria-label="Bàn và món" className="min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-muted">Bàn</span>
                 <button
                   type="button"
                   aria-label="Chọn bàn"
@@ -490,232 +445,366 @@ export function OrderModal({
                   {tableName(selectedTableId)}
                   <ChevronDown size={12} className="text-faint" />
                 </button>
-              )}
-            </div>
+              </div>
 
-            {!isPendingMode && tablePickerOpen ? (
-              <div className="mt-2 grid grid-cols-3 gap-2 rounded-xl border border-line bg-bg/60 p-2">
-                {tables.map((table) => (
+              {tablePickerOpen ? (
+                <div className="mt-2 grid grid-cols-3 gap-2 rounded-xl border border-line bg-bg/60 p-2">
+                  {tables.map((table) => {
+                    const blocked =
+                      isTableBusy(table.id) && table.id !== selectedTableId
+                    return (
+                      <button
+                        key={table.id}
+                        type="button"
+                        aria-pressed={selectedTableId === table.id}
+                        disabled={blocked}
+                        title={blocked ? 'Bàn đang có đơn mở' : undefined}
+                        onClick={() => chooseTable(table.id)}
+                        className={`rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                          selectedTableId === table.id
+                            ? 'border-primary-ring bg-primary-soft text-primary'
+                            : 'border-line bg-surface text-muted hover:text-ink'
+                        }`}
+                      >
+                        {table.name}
+                      </button>
+                    )
+                  })}
                   <button
-                    key={table.id}
                     type="button"
-                    aria-pressed={selectedTableId === table.id}
-                    onClick={() => chooseTable(table.id)}
-                    className={`rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors ${
-                      selectedTableId === table.id
+                    aria-pressed={selectedTableId === null}
+                    onClick={() => chooseTable(null)}
+                    className={`col-span-3 flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors ${
+                      selectedTableId === null
                         ? 'border-primary-ring bg-primary-soft text-primary'
                         : 'border-line bg-surface text-muted hover:text-ink'
                     }`}
                   >
-                    {table.name}
+                    <ShoppingBag size={13} />
+                    Mang đi
                   </button>
-                ))}
-                <button
-                  type="button"
-                  aria-pressed={selectedTableId === null}
-                  onClick={() => chooseTable(null)}
-                  className={`col-span-3 flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors ${
-                    selectedTableId === null
-                      ? 'border-primary-ring bg-primary-soft text-primary'
-                      : 'border-line bg-surface text-muted hover:text-ink'
-                  }`}
-                >
-                  <ShoppingBag size={13} />
-                  Mang đi
-                </button>
-              </div>
-            ) : null}
-
-            {viewCart.length > 0 ? (
-              <div className="mt-3 divide-y divide-line rounded-xl border border-line px-3">
-                {viewCart.map((line) => (
-                  <div
-                    key={line.lineId}
-                    className="flex items-center justify-between gap-2 py-2 text-xs"
-                  >
-                    <span className="min-w-0 truncate font-medium text-ink">
-                      {line.name ?? getMenuItem(line.menuItemId)?.name ?? 'Món'}
-                      <span className="ml-1 text-muted">×{line.qty}</span>
-                      {line.served === true ? (
-                        <span className="ml-1 text-[10px] font-semibold text-positive">
-                          Đã ra
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="shrink-0 font-semibold text-ink tabular-nums">
-                      {formatVND(
-                        (line.unitPrice ??
-                          getMenuItem(line.menuItemId)?.price ??
-                          0) * line.qty,
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {isPendingMode ? (
-              pendingOrder?.note ? (
-                <div className="mt-3 flex items-start gap-2 rounded-xl bg-gold-soft/60 px-3 py-2 text-[11px] leading-relaxed text-brown">
-                  <NotebookPen size={13} className="mt-0.5 shrink-0" />
-                  <span className="min-w-0 flex-1 break-words">
-                    {pendingOrder.note}
-                  </span>
                 </div>
-              ) : null
-            ) : (
-              <div className="mt-3">
-                <NoteEditor />
-              </div>
-            )}
+              ) : null}
 
-            {isPendingMode ? (
-              <section aria-label="Tổng kết đơn" className="mt-3">
-                <dl className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="font-medium text-muted">Tạm tính</dt>
-                    <dd className="font-semibold text-ink tabular-nums">
-                      {formatVND(viewTotals.subtotal)}
-                    </dd>
+              <div className="mt-4 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-muted">
+                  Món ({itemCount})
+                </span>
+                {unserved > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={
+                      isPendingMode && orderId !== undefined
+                        ? () => setAllPendingServed(orderId)
+                        : setAllServed
+                    }
+                    className="h-8 shrink-0 px-2.5 text-[11px]"
+                  >
+                    Chọn tất cả
+                  </Button>
+                ) : null}
+              </div>
+
+              {viewCart.length > 0 ? (
+                <div className="mt-2 divide-y divide-line rounded-xl border border-line px-3">
+                  {isPendingMode
+                    ? viewCart.map((line) => {
+                        const served = line.served === true
+                        return (
+                          <div
+                            key={line.lineId}
+                            className="flex items-center justify-between gap-2 py-3 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-ink">
+                                {line.name ??
+                                  getMenuItem(line.menuItemId)?.name ??
+                                  'Món'}
+                                <span className="ml-1 text-muted tabular-nums">
+                                  ×{line.qty}
+                                </span>
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-faint">
+                                Số lượng cố định · dùng “Thêm món” để chỉnh sửa
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <span className="font-semibold text-ink tabular-nums">
+                                {formatVND(
+                                  (line.unitPrice ??
+                                    getMenuItem(line.menuItemId)?.price ??
+                                    0) * line.qty,
+                                )}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant={served ? 'ghost' : 'secondary'}
+                                aria-pressed={served}
+                                onClick={() =>
+                                  orderId !== undefined &&
+                                  setPendingLineServed(
+                                    orderId,
+                                    line.lineId,
+                                    !served,
+                                  )
+                                }
+                                className={
+                                  served
+                                    ? 'h-8 shrink-0 px-2.5 text-[11px] text-positive hover:bg-positive-soft hover:text-positive'
+                                    : 'h-8 shrink-0 px-2.5 text-[11px]'
+                                }
+                              >
+                                {served ? (
+                                  <CheckCheck size={13} />
+                                ) : (
+                                  <Check size={13} />
+                                )}
+                                {served ? 'Đã ra' : 'Mang ra'}
+                              </Button>
+                            </div>
+                          </div>
+                        )
+                      })
+                    : cart.map((line) => (
+                        <CartRow
+                          key={line.lineId}
+                          line={line}
+                          onIncrement={() => increment(line.lineId)}
+                          onDecrement={() => decrement(line.lineId)}
+                          onRemove={() => removeItem(line.lineId)}
+                          showServed
+                          onToggleServed={() =>
+                            setLineServed(line.lineId, line.served !== true)
+                          }
+                        />
+                      ))}
+                </div>
+              ) : null}
+            </section>
+
+            <section aria-label="Thanh toán" className="min-w-0 space-y-4">
+
+              {isPendingMode ? (
+                pendingOrder?.note ? (
+                  <div className="flex items-start gap-2 rounded-xl bg-gold-soft/60 px-3 py-2 text-[11px] leading-relaxed text-brown">
+                    <NotebookPen size={13} className="mt-0.5 shrink-0" />
+                    <span className="min-w-0 flex-1 break-words">
+                      {pendingOrder.note}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="font-medium text-muted">
-                      Giảm giá{discountLabel}
-                    </dt>
-                    <dd
-                      className={`font-semibold tabular-nums ${
-                        viewTotals.discountAmount > 0
-                          ? 'text-positive'
-                          : 'text-faint'
-                      }`}
-                    >
-                      {viewTotals.discountAmount > 0
-                        ? `-${formatVND(viewTotals.discountAmount)}`
-                        : '—'}
-                    </dd>
+                ) : null
+              ) : (
+                <div>
+                  <NoteEditor />
+                </div>
+              )}
+
+              {isPendingMode ? (
+                <section aria-label="Tổng kết đơn">
+                  <dl className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="font-medium text-muted">Tạm tính</dt>
+                      <dd className="font-semibold text-ink tabular-nums">
+                        {formatVND(viewTotals.subtotal)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="font-medium text-muted">
+                        Giảm giá{discountLabel}
+                      </dt>
+                      <dd
+                        className={`font-semibold tabular-nums ${
+                          viewTotals.discountAmount > 0
+                            ? 'text-positive'
+                            : 'text-faint'
+                        }`}
+                      >
+                        {viewTotals.discountAmount > 0
+                          ? `-${formatVND(viewTotals.discountAmount)}`
+                          : '—'}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="font-medium text-muted">
+                        VAT ({Math.round(RESTAURANT.taxRate * 100)}%)
+                      </dt>
+                      <dd className="font-semibold text-ink tabular-nums">
+                        {formatVND(viewTotals.tax)}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
+                    <span className="text-sm font-bold text-ink">Tổng cộng</span>
+                    <span className="text-base font-bold text-ink tabular-nums">
+                      {formatVND(viewTotals.total)}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="font-medium text-muted">
-                      VAT ({Math.round(RESTAURANT.taxRate * 100)}%)
-                    </dt>
-                    <dd className="font-semibold text-ink tabular-nums">
-                      {formatVND(viewTotals.tax)}
-                    </dd>
-                  </div>
-                </dl>
-                <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
-                  <span className="text-sm font-bold text-ink">Tổng cộng</span>
-                  <span className="text-base font-bold text-ink tabular-nums">
+                </section>
+              ) : (
+                <OrderSummary totals={totals} />
+              )}
+
+              <div className="rounded-xl bg-primary-soft/70 p-3.5">
+                <div className="flex items-end justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-primary/80">
+                    Tổng cần thu
+                  </span>
+                  <span className="text-xl leading-none font-bold text-primary tabular-nums">
                     {formatVND(viewTotals.total)}
                   </span>
                 </div>
-              </section>
-            ) : (
-              <OrderSummary totals={totals} />
-            )}
-
-            <div className="mt-4 rounded-xl bg-primary-soft/70 p-3.5">
-              <div className="flex items-end justify-between gap-2">
-                <span className="text-[11px] font-semibold text-primary/80">
-                  Tổng cần thu
-                </span>
-                <span className="text-xl leading-none font-bold text-primary tabular-nums">
-                  {formatVND(viewTotals.total)}
-                </span>
               </div>
-            </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              {METHODS.map((option) => {
-                const isActive = option.id === method
-                const Icon =
-                  option.id === 'cash'
-                    ? Banknote
-                    : option.id === 'transfer'
-                      ? Landmark
-                      : CreditCard
+              <div className="grid grid-cols-3 gap-2">
+                {METHODS.map((option) => {
+                  const isActive = option.id === method
+                  const Icon =
+                    option.id === 'cash'
+                      ? Banknote
+                      : option.id === 'transfer'
+                        ? Landmark
+                        : CreditCard
 
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={isActive}
-                    onClick={() => setMethod(option.id)}
-                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-2.5 text-[11px] font-semibold transition-colors ${
-                      isActive
-                        ? 'border-primary-ring bg-primary-soft text-primary'
-                        : 'border-line bg-surface text-muted hover:text-ink'
-                    }`}
-                  >
-                    <Icon size={17} />
-                    {option.label}
-                  </button>
-                )
-              })}
-            </div>
-
-            <p className="mt-2 text-[10px] text-faint">
-              {METHODS.find((option) => option.id === method)?.hint}
-            </p>
-
-            {method === 'cash' ? (
-              <div className="mt-4">
-                <label className="block">
-                  <span className="text-[11px] font-semibold text-muted">
-                    Tiền khách đưa
-                  </span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    aria-label="Tiền khách đưa"
-                    value={receivedInput}
-                    onChange={(event) => setReceivedInput(event.target.value)}
-                    placeholder="0"
-                    className="mt-1.5 h-11 w-full rounded-xl border border-line bg-bg/40 px-3 text-sm font-bold text-ink tabular-nums placeholder:text-faint focus:border-primary-ring focus:bg-surface focus:outline-none"
-                  />
-                </label>
-
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {quickAmounts.map((amount) => (
+                  return (
                     <button
-                      key={amount}
+                      key={option.id}
                       type="button"
-                      onClick={() => setReceivedInput(String(amount))}
-                      className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold tabular-nums transition-colors ${
-                        receivedNumber === amount
+                      aria-pressed={isActive}
+                      onClick={() => setMethod(option.id)}
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-2.5 text-[11px] font-semibold transition-colors ${
+                        isActive
                           ? 'border-primary-ring bg-primary-soft text-primary'
                           : 'border-line bg-surface text-muted hover:text-ink'
                       }`}
                     >
-                      {formatVND(amount)}
+                      <Icon size={17} />
+                      {option.label}
                     </button>
-                  ))}
-                </div>
+                  )
+                })}
+              </div>
 
-                <div className="mt-3 flex items-center justify-between rounded-xl bg-bg px-3 py-2.5 text-xs">
-                  <span className="font-medium text-muted">Tiền thối lại</span>
-                  <span
-                    className={`font-bold tabular-nums ${
-                      isInsufficient ? 'text-negative' : 'text-positive'
-                    }`}
+              <p className="text-[10px] text-faint">
+                {METHODS.find((option) => option.id === method)?.hint}
+              </p>
+
+              {method === 'cash' ? (
+                <div>
+                  <label className="block">
+                    <span className="text-[11px] font-semibold text-muted">
+                      Tiền khách đưa
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      aria-label="Tiền khách đưa"
+                      value={receivedInput}
+                      onChange={(event) => setReceivedInput(event.target.value)}
+                      placeholder="0"
+                      className="mt-1.5 h-11 w-full rounded-xl border border-line bg-bg/40 px-3 text-sm font-bold text-ink tabular-nums placeholder:text-faint focus:border-primary-ring focus:bg-surface focus:outline-none"
+                    />
+                  </label>
+
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {quickAmounts.map((amount) => (
+                      <button
+                        key={amount}
+                        type="button"
+                        onClick={() => setReceivedInput(String(amount))}
+                        className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold tabular-nums transition-colors ${
+                          receivedNumber === amount
+                            ? 'border-primary-ring bg-primary-soft text-primary'
+                            : 'border-line bg-surface text-muted hover:text-ink'
+                        }`}
+                      >
+                        {formatVND(amount)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl bg-bg px-3 py-2.5 text-xs">
+                    <span className="font-medium text-muted">Tiền thối lại</span>
+                    <span
+                      className={`font-bold tabular-nums ${
+                        isInsufficient ? 'text-negative' : 'text-positive'
+                      }`}
+                    >
+                      {formatVND(change)}
+                    </span>
+                  </div>
+
+                  {isInsufficient ? (
+                    <p className="mt-1.5 text-[11px] font-semibold text-negative">
+                      Còn thiếu {formatVND(viewTotals.total - receivedNumber)}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-line bg-bg/50 px-3 py-3 text-center text-[11px] leading-relaxed text-muted">
+                  Xác nhận sau khi khách đã hoàn tất thanh toán. Hoá đơn vẫn được
+                  lưu và in lại được trên máy này.
+                </div>
+              )}
+
+              {showWarning ? (
+                <p
+                  role="status"
+                  className="rounded-xl border border-negative/20 bg-negative-soft px-3 py-2 text-center text-[11px] font-semibold text-negative"
+                >
+                  Còn {unserved} món chưa mang ra — vẫn thanh toán?
+                </p>
+              ) : null}
+
+              {isPendingMode ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="secondary"
+                    disabled={!pendingOrder}
+                    onClick={handleAddItems}
                   >
-                    {formatVND(change)}
-                  </span>
+                    <Plus size={15} />
+                    Thêm món
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!pendingOrder}
+                    onClick={() => setCancelOpen(true)}
+                  >
+                    Huỷ đơn
+                  </Button>
+                  <Button
+                    className="col-span-2"
+                    disabled={!canConfirm}
+                    onClick={handleConfirm}
+                  >
+                    {showWarning ? 'Vẫn thanh toán' : 'Thanh toán'}
+                  </Button>
                 </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="secondary"
+                    disabled={!canSave}
+                    onClick={handleSavePending}
+                  >
+                    Lưu chờ thanh toán
+                  </Button>
+                  <Button disabled={!canConfirm} onClick={handleConfirm}>
+                    {showWarning ? 'Vẫn thanh toán' : 'Thanh toán'}
+                  </Button>
+                </div>
+              )}
 
-                {isInsufficient ? (
-                  <p className="mt-1.5 text-[11px] font-semibold text-negative">
-                    Còn thiếu {formatVND(viewTotals.total - receivedNumber)}
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-dashed border-line bg-bg/50 px-3 py-3 text-center text-[11px] leading-relaxed text-muted">
-                Xác nhận sau khi khách đã hoàn tất thanh toán. Hoá đơn vẫn được
-                lưu và in lại được trên máy này.
-              </div>
-            )}
+              <p className="text-center text-[10px] text-faint">
+                {isInsufficient
+                  ? 'Khách đưa chưa đủ tiền để thanh toán.'
+                  : isPendingMode
+                    ? 'Đơn sẽ được lưu vào lịch sử trên thiết bị này.'
+                    : 'Đơn sẽ được lưu trên máy này và có thể in lại hoá đơn.'}
+              </p>
+            </section>
           </div>
         )}
       </Modal>

@@ -71,6 +71,35 @@ describe('OrderModal — chế độ tạo', () => {
     ).toBeDisabled()
   })
 
+  it('opens at xl width', () => {
+    renderOrderModal()
+
+    expect(screen.getByRole('dialog')).toHaveClass('max-w-5xl')
+  })
+
+  it('marks a line served and serves every line from the modal', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().addItem('nuoc-chanh')
+    renderOrderModal()
+
+    await user.click(screen.getAllByRole('button', { name: 'Mang ra' })[0])
+
+    const afterOne = usePOSStore.getState().cart
+    expect(afterOne.filter((line) => line.served === true)).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Chọn tất cả' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Xoá Gà nướng' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Chọn tất cả' }))
+
+    expect(
+      usePOSStore.getState().cart.every((line) => line.served === true),
+    ).toBe(true)
+    expect(
+      screen.queryByRole('button', { name: 'Chọn tất cả' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('calculates change and blocks insufficient cash', async () => {
     const user = userEvent.setup()
     usePOSStore.getState().addItem('ga-nuong')
@@ -665,5 +694,105 @@ describe('OrderModal — chế độ đơn chờ', () => {
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByText('Bàn 07')).toBeInTheDocument()
+  })
+
+  it('changes a pending order table from the modal without resuming it', async () => {
+    const user = userEvent.setup()
+    const order = createPendingOrder()
+    const activeCart = [
+      {
+        lineId: 'active',
+        menuItemId: 'banh-chocolate',
+        qty: 2,
+        unitPrice: 45000,
+        name: 'Bánh chocolate',
+      },
+    ]
+    usePOSStore.setState({
+      cart: activeCart,
+      editingPendingOrderId: 'another-order',
+    })
+    const resumeSpy = vi.spyOn(usePOSStore.getState(), 'resumePendingOrder')
+
+    renderOrderModal(true, { orderId: order.id })
+
+    await user.click(screen.getByRole('button', { name: 'Chọn bàn' }))
+    await user.click(screen.getByRole('button', { name: 'Bàn 07' }))
+
+    const updated = usePOSStore
+      .getState()
+      .history.find((item) => item.id === order.id)!
+    expect(updated.tableId).toBe('ban-7')
+    expect(updated.tableName).toBe('Bàn 07')
+    expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(false)
+    expect(usePOSStore.getState().isTableBusy('ban-7')).toBe(true)
+    expect(usePOSStore.getState().cart).toEqual(activeCart)
+    expect(usePOSStore.getState().editingPendingOrderId).toBe('another-order')
+    expect(resumeSpy).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Chọn bàn' })).toHaveTextContent(
+      'Bàn 07',
+    )
+  })
+
+  it('disables tables occupied by another open order in pending mode', async () => {
+    const user = userEvent.setup()
+    const order = createPendingOrder()
+    usePOSStore.getState().assignTable('ban-2')
+    usePOSStore.getState().addItem('khoai-tay-chien')
+    usePOSStore.getState().savePendingOrder()
+
+    renderOrderModal(true, { orderId: order.id })
+
+    await user.click(screen.getByRole('button', { name: 'Chọn bàn' }))
+
+    const busy = screen.getByRole('button', { name: 'Bàn 02' })
+    expect(busy).toBeDisabled()
+    expect(busy).toHaveAttribute('title', 'Bàn đang có đơn mở')
+    expect(screen.getByRole('button', { name: 'Bàn 05' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Mang đi' })).toBeEnabled()
+  })
+
+  it('marks served lines only on the pending order, never on the active cart', async () => {
+    const user = userEvent.setup()
+    const order = createPendingOrder()
+    const activeCart = [
+      {
+        lineId: 'active',
+        menuItemId: 'banh-chocolate',
+        qty: 2,
+        unitPrice: 45000,
+        name: 'Bánh chocolate',
+      },
+    ]
+    usePOSStore.setState({
+      cart: activeCart,
+      editingPendingOrderId: 'another-order',
+    })
+
+    renderOrderModal(true, { orderId: order.id })
+
+    const toggles = screen.getAllByRole('button', { name: 'Mang ra' })
+    expect(toggles).toHaveLength(2)
+    await user.click(toggles[0])
+
+    let current = usePOSStore
+      .getState()
+      .history.find((item) => item.id === order.id)!
+    expect(current.items[0].served).toBe(true)
+    expect(current.items[1].served).not.toBe(true)
+    expect(usePOSStore.getState().cart).toEqual(activeCart)
+    expect(usePOSStore.getState().editingPendingOrderId).toBe('another-order')
+
+    await user.click(screen.getByRole('button', { name: 'Chọn tất cả' }))
+
+    current = usePOSStore
+      .getState()
+      .history.find((item) => item.id === order.id)!
+    expect(current.items.every((item) => item.served === true)).toBe(true)
+    expect(usePOSStore.getState().cart).toEqual(activeCart)
+    expect(usePOSStore.getState().editingPendingOrderId).toBe('another-order')
+    expect(
+      screen.queryByRole('button', { name: 'Chọn tất cả' }),
+    ).not.toBeInTheDocument()
   })
 })
