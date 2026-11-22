@@ -163,6 +163,7 @@ model Table {
   seats        Int
   zone         String?
   sortOrder    Int        @default(0)
+  isActive     Boolean    @default(true)
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   orders       Order[]
 

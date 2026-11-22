@@ -32,7 +32,40 @@ export interface TableOption {
   /** Server UUID used when sending orders. */
   serverId?: string
   zone?: string | null
+  /** Whether the local table has been synced to the server. */
+  syncState?: 'pending' | 'synced'
 }
+
+export interface TableFormInput {
+  name: string
+  seats: number
+  zone?: string | null
+}
+
+export interface CreateTablePayload extends TableFormInput {
+  legacyId: string
+  sortOrder?: number
+}
+
+/** A table mutation waiting to be synced to the server. */
+export type TableOp =
+  | {
+      id: string
+      kind: 'CREATE_TABLE'
+      tableId: string
+      payload: CreateTablePayload
+      createdAt: number
+    }
+  | {
+      id: string
+      kind: 'DELETE_TABLE'
+      tableId: string
+      serverId: string
+      createdAt: number
+    }
+
+/** Derived table status: no open lines, some lines pending, or all served. */
+export type TableState = 'empty' | 'pending' | 'served'
 
 export interface CartLine {
   lineId: string
@@ -42,6 +75,8 @@ export interface CartLine {
   unitPrice?: number
   /** Display name snapshot captured when the line was added. */
   name?: string
+  /** `true` once the line has been taken to the table; it can no longer change. */
+  served?: boolean
 }
 
 export interface Discount {
@@ -56,6 +91,14 @@ export interface Draft {
   discount: Discount
   note: string
   createdAt: number
+}
+
+/** A suspended order for a table that is not currently active. */
+export interface OpenOrderSnapshot {
+  cart: CartLine[]
+  discount: Discount
+  note: string
+  updatedAt: number
 }
 
 export type PaymentMethod = 'cash' | 'transfer' | 'card'

@@ -11,6 +11,7 @@ import { getMenuItem } from '../../data/menu'
 import { tableName } from '../../data/tables'
 import { calcTotals } from '../../lib/calc'
 import { formatVND } from '../../lib/format'
+import { countUnserved } from '../../lib/table-state'
 import { usePOSStore } from '../../store/usePOSStore'
 import type { OrderRecord, PaymentMethod } from '../../types'
 import { Button } from '../ui/Button'
@@ -63,6 +64,24 @@ export function ChargeModal({
     totals.total > 0 ? String(totals.total) : '',
   )
   const [completed, setCompleted] = useState<OrderRecord | null>(null)
+  const [confirmedUnserved, setConfirmedUnserved] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+
+  // Drop the acknowledgement as soon as the parent closes the modal, so a
+  // later reopen always starts with the normal confirmation button again.
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (!open) setConfirmedUnserved(false)
+  }
+
+  const unserved = countUnserved(cart)
+  const needsWarning = tableId !== null && unserved > 0
+  const showWarning = needsWarning && confirmedUnserved
+
+  const handleClose = () => {
+    setConfirmedUnserved(false)
+    onClose()
+  }
 
   const itemCount = cart.reduce((sum, line) => sum + line.qty, 0)
   const receivedNumber = Math.max(0, Math.round(Number(receivedInput) || 0))
@@ -81,6 +100,11 @@ export function ChargeModal({
 
   const handleConfirm = () => {
     if (!canConfirm) return
+
+    if (needsWarning && !confirmedUnserved) {
+      setConfirmedUnserved(true)
+      return
+    }
 
     const order = completeOrder({
       method,
@@ -108,13 +132,21 @@ export function ChargeModal({
           ? 'Đơn đã được lưu vào lịch sử trên thiết bị này.'
           : `${itemCount} món · ${tableName(tableId)}`
       }
-      onClose={onClose}
+      onClose={handleClose}
       size="sm"
       footer={
         completed ? undefined : (
           <div className="space-y-2">
+            {showWarning ? (
+              <p
+                role="status"
+                className="rounded-xl border border-negative/20 bg-negative-soft px-3 py-2 text-center text-[11px] font-semibold text-negative"
+              >
+                Còn {unserved} món chưa mang ra — vẫn thanh toán?
+              </p>
+            ) : null}
             <Button fullWidth disabled={!canConfirm} onClick={handleConfirm}>
-              Xác nhận thanh toán
+              {showWarning ? 'Vẫn thanh toán' : 'Xác nhận thanh toán'}
             </Button>
             <p className="text-center text-[10px] text-faint">
               {isInsufficient
