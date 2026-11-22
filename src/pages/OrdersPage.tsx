@@ -13,11 +13,17 @@ import { matchesQuery } from '../lib/search'
 import { cancel } from '../services/orderService'
 import { useAuthStore } from '../store/useAuthStore'
 import { usePOSStore } from '../store/usePOSStore'
-import type { LocalOrder, OrderRecord, PaymentMethod } from '../types'
+import type {
+  LocalOrder,
+  OrderRecord,
+  OrderStatus,
+  PaymentMethod,
+} from '../types'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { ConfirmModal } from '../components/modals/ConfirmModal'
 import { EmptyState } from '../components/ui/EmptyState'
+import { OrderModal } from '../components/order/OrderModal'
 
 interface OrdersPageProps {
   onOpenReceipt: (order: OrderRecord) => void
@@ -37,24 +43,38 @@ const METHOD_META: Record<
 const isToday = (timestamp: number) =>
   new Date(timestamp).toDateString() === new Date().toDateString()
 
-/** Sale lifecycle badge shown next to the order code. */
-function SyncStatus({ order }: { order: OrderRecord }) {
-  if (order.voided) return <Badge tone="negative">Đã huỷ</Badge>
+/**
+ * Runtime validation tolerates snapshots without a business status (the field
+ * was introduced in v4). Such legacy orders are already paid, so defaulting
+ * to `completed` keeps the UI truthful.
+ */
+const businessStatus = (order: OrderRecord): OrderStatus =>
+  order.status ?? 'completed'
 
+/** The main badge reflects where the sale stands, never sync bookkeeping. */
+function StatusBadge({ status }: { status: OrderStatus }) {
+  switch (status) {
+    case 'pending_payment':
+      return <Badge tone="gold">Chờ thanh toán</Badge>
+    case 'cancelled':
+      return <Badge tone="negative">Đã huỷ</Badge>
+    default:
+      return <Badge tone="positive">Thành công</Badge>
+  }
+}
+
+/** Low-emphasis sync detail, kept only as a secondary hint. */
+function SyncNote({ order }: { order: OrderRecord }) {
   switch (order.syncState) {
-    case 'synced':
-      return <Badge tone="positive">Đã đồng bộ</Badge>
     case 'pending':
     case 'inflight':
-      return <Badge tone="gold">Chờ đồng bộ</Badge>
+      return <span className="text-[10px] text-muted">Chờ đồng bộ</span>
     case 'failed':
-      return <Badge tone="negative">Lỗi đồng bộ</Badge>
+      return <span className="text-[10px] text-negative">Lỗi đồng bộ</span>
     case 'conflict':
-      return <Badge tone="negative">Lệch giá</Badge>
-    case 'voided':
-      return <Badge tone="negative">Đã huỷ</Badge>
+      return <span className="text-[10px] text-negative">Lệch giá</span>
     case 'legacy':
-      return <Badge tone="neutral">Chỉ trên máy</Badge>
+      return <span className="text-[10px] text-muted">Chỉ trên máy</span>
     default:
       return null
   }
@@ -62,20 +82,32 @@ function SyncStatus({ order }: { order: OrderRecord }) {
 
 export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
   const history = usePOSStore((state) => state.history)
+  const editingPendingOrderId = usePOSStore(
+    (state) => state.editingPendingOrderId,
+  )
+  const cancelPendingOrder = usePOSStore((state) => state.cancelPendingOrder)
   const role = useAuthStore((state) => state.user?.role)
   const [scope, setScope] = useState<Scope>('today')
   const [query, setQuery] = useState('')
   const [cancelTarget, setCancelTarget] = useState<LocalOrder | null>(null)
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null)
 
   const canCancel = role === 'OWNER' || role === 'MANAGER'
 
+  // The order being edited deliberately stays in history; hide it here so it
+  // is never listed twice while the POS screen owns it.
+  const listedHistory = useMemo(
+    () => history.filter((order) => order.id !== editingPendingOrderId),
+    [history, editingPendingOrderId],
+  )
+
   const orders = useMemo(
     () =>
-      history
+      listedHistory
         .filter((order) => scope === 'all' || isToday(order.createdAt))
         .filter((order) => matchesQuery(query, order.code, order.tableName))
         .sort((a, b) => b.createdAt - a.createdAt),
-    [history, scope, query],
+    [listedHistory, scope, query],
   )
 
   const total = orders.reduce((sum, order) => sum + order.total, 0)
@@ -89,7 +121,7 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
             Đơn hàng
           </h1>
           <p className="mt-0.5 text-xs text-muted">
-            Hoá đơn đã thanh toán trên thiết bị này.
+            Đơn chờ, đã thanh toán và đã huỷ trên thiết bị này.
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 shadow-card">
@@ -166,15 +198,15 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
         <EmptyState
           icon={<ReceiptText size={22} />}
           title={
-            history.length === 0 ? 'Chưa có đơn nào' : 'Không tìm thấy đơn'
+            listedHistory.length === 0 ? 'Chưa có đơn nào' : 'Không tìm thấy đơn'
           }
           description={
-            history.length === 0
-              ? 'Đơn đã thanh toán sẽ xuất hiện ở đây để tra cứu và in lại hoá đơn.'
+            listedHistory.length === 0
+              ? 'Đơn hàng trên thiết bị này sẽ xuất hiện ở đây để tra cứu và in lại hoá đơn.'
               : 'Thử mã đơn hoặc tên bàn khác, hoặc chuyển sang xem tất cả.'
           }
           action={
-            history.length > 0 ? (
+            listedHistory.length > 0 ? (
               <Button
                 variant="secondary"
                 size="sm"
@@ -198,6 +230,7 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
               (sum, item) => sum + item.qty,
               0,
             )
+            const status = businessStatus(order)
 
             return (
               <li key={order.id}>
@@ -215,7 +248,8 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
                         <Icon size={11} />
                         {meta.label}
                       </Badge>
-                      <SyncStatus order={order} />
+                      <StatusBadge status={status} />
+                      <SyncNote order={order} />
                     </div>
                     <p className="mt-0.5 truncate text-[11px] text-muted">
                       {formatDateTime(order.createdAt)} · {order.tableName} ·{' '}
@@ -227,16 +261,39 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
                     {formatVND(order.total)}
                   </p>
 
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onOpenReceipt(order)}
-                    className="shrink-0"
-                  >
-                    Xem hoá đơn
-                  </Button>
+                  {status === 'pending_payment' ? (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => setPayingOrderId(order.id)}
+                        className="shrink-0"
+                      >
+                        Thanh toán
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => cancelPendingOrder(order.id)}
+                        className="shrink-0"
+                      >
+                        <Ban size={13} />
+                        Huỷ
+                      </Button>
+                    </>
+                  ) : null}
 
-                  {canCancel && !order.voided ? (
+                  {status === 'completed' ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => onOpenReceipt(order)}
+                      className="shrink-0"
+                    >
+                      Xem hoá đơn
+                    </Button>
+                  ) : null}
+
+                  {status === 'completed' && canCancel && !order.voided ? (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -276,6 +333,18 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
         }}
         onClose={() => setCancelTarget(null)}
       />
+
+      {payingOrderId !== null ? (
+        <OrderModal
+          open
+          orderId={payingOrderId}
+          onClose={() => setPayingOrderId(null)}
+          onOpenReceipt={(paid) => {
+            onOpenReceipt(paid)
+            setPayingOrderId(null)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
