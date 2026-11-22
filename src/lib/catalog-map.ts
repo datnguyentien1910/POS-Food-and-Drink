@@ -48,5 +48,6 @@ export function mapTables(tables: ServerTable[]): TableOption[] {
     name: table.name,
     seats: table.seats,
     zone: table.zone,
+    syncState: 'synced',
   }))
 }

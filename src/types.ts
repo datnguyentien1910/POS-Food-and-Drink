@@ -32,7 +32,37 @@ export interface TableOption {
   /** Server UUID used when sending orders. */
   serverId?: string
   zone?: string | null
+  /** Whether the local table has been synced to the server. */
+  syncState?: 'pending' | 'synced'
 }
+
+export interface TableFormInput {
+  name: string
+  seats: number
+  zone?: string | null
+}
+
+export interface CreateTablePayload extends TableFormInput {
+  legacyId: string
+  sortOrder?: number
+}
+
+/** A table mutation waiting to be synced to the server. */
+export type TableOp =
+  | {
+      id: string
+      kind: 'CREATE_TABLE'
+      tableId: string
+      payload: CreateTablePayload
+      createdAt: number
+    }
+  | {
+      id: string
+      kind: 'DELETE_TABLE'
+      tableId: string
+      serverId: string
+      createdAt: number
+    }
 
 /** Derived table status: no open lines, some lines pending, or all served. */
 export type TableState = 'empty' | 'pending' | 'served'

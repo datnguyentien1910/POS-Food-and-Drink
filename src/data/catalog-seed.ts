@@ -62,7 +62,6 @@ export const TABLES: TableOption[] = Array.from(
   { length: RESTAURANT.tableCount },
   (_, index) => ({
     id: `ban-${index + 1}`,
-    serverId: `ban-${index + 1}`,
     name: `Bàn ${String(index + 1).padStart(2, '0')}`,
     seats: index < 4 ? 2 : index < 8 ? 4 : 6,
   }),
