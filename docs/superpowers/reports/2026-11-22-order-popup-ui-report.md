@@ -84,3 +84,13 @@ Test mới nằm trong `Modal.test.tsx`, `usePOSStore.test.ts`, `OrderModal.test
 - Stepper dòng đã ra bị khoá ở mọi nơi (kể cả panel) ✅
 - Persist v4/key `restodash-pos-v1` giữ nguyên; server không đổi ✅
 - Root + server test/lint/build/e2e xanh ✅
+
+## Final review và fix cuối
+
+Final review ban đầu trả **Ready to merge: No**: tick served trong đơn chờ đang soạn (`editingPendingOrderId === orderId`) chỉ vá `history`, rồi bị `savePendingOrder()` ghi đè từ giỏ active lúc thanh toán.
+
+Hai fix:
+- `aad45d9`: đổi bàn đơn chờ cũng đồng bộ `tableId` active.
+- `9e9142b`: `setPendingLineServed`/`setAllPendingServed` cũng vá các dòng giỏ active tương ứng (`${orderId}:${index}`) khi đơn đang được soạn, đồng thời cập nhật `updatedAt`.
+
+Có test hồi quy cho cả hai. Review lại: **Ready to merge — Yes**. Số test root cuối cùng **331/331**.
