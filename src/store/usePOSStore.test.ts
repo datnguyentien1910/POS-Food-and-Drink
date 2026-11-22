@@ -1202,4 +1202,83 @@ describe('pending orders', () => {
     usePOSStore.getState().voidLocalOrder(order.clientId, 'Khách đổi ý')
     expect(usePOSStore.getState().history[0].status).toBe('cancelled')
   })
+
+  it('keeps a new cart created on the pending order table when resuming', () => {
+    const order = saveChickenOnBan5()
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().setNote('Giỏ mới')
+
+    usePOSStore.getState().resumePendingOrder(order.id)
+
+    const state = usePOSStore.getState()
+    expect(state.openOrders['ban-5']).toMatchObject({
+      note: 'Giỏ mới',
+      cart: [{ menuItemId: coffee.id }],
+    })
+    expect(state.cart.map((line) => line.menuItemId)).toEqual([chicken.id])
+  })
+
+  it('does not cancel an already completed order or its queue item', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    const completed = usePOSStore.getState().completeOrder({ method: 'cash' })!
+    const queueBefore = usePOSStore.getState().queue
+
+    usePOSStore.getState().cancelPendingOrder(completed.id)
+
+    const state = usePOSStore.getState()
+    expect(state.history[0].status).toBe('completed')
+    expect(state.queue).toEqual(queueBefore)
+  })
+
+  it('clears the active cart when paying the order being edited', () => {
+    const order = saveChickenOnBan5()
+    usePOSStore.getState().resumePendingOrder(order.id)
+    expect(usePOSStore.getState().editingPendingOrderId).toBe(order.id)
+
+    const paid = usePOSStore.getState().payPendingOrder(order.id, {
+      method: 'cash',
+      expectedTotal: 119900,
+    })!
+
+    const state = usePOSStore.getState()
+    expect(paid.status).toBe('completed')
+    expect(state.cart).toEqual([])
+    expect(state.tableId).toBeNull()
+    expect(state.note).toBe('')
+    expect(state.discount).toEqual({ type: 'amount', value: 0 })
+    expect(state.editingPendingOrderId).toBeNull()
+    expect(state.isTableBusy('ban-5')).toBe(false)
+  })
+
+  it('sends the latest upserted cart in the payload when paying an edited order', () => {
+    const order = saveChickenOnBan5()
+    usePOSStore.getState().resumePendingOrder(order.id)
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().savePendingOrder()
+
+    const paid = usePOSStore.getState().payPendingOrder(order.id, {
+      method: 'cash',
+    })!
+
+    expect(paid.items.map((line) => line.menuItemId)).toEqual([
+      chicken.id,
+      coffee.id,
+    ])
+    expect(usePOSStore.getState().queue[0].payload).toMatchObject({
+      items: [{ menuItemId: chicken.id }, { menuItemId: coffee.id }],
+    })
+  })
+
+  it('keeps an unrelated active cart when paying a pending order from Orders', () => {
+    const order = saveChickenOnBan5()
+    usePOSStore.getState().switchTable('ban-1')
+    usePOSStore.getState().addItem(coffee.id)
+
+    usePOSStore.getState().payPendingOrder(order.id, { method: 'cash' })
+
+    const state = usePOSStore.getState()
+    expect(state.cart.map((line) => line.menuItemId)).toEqual([coffee.id])
+    expect(state.tableId).toBe('ban-1')
+  })
 })

@@ -659,14 +659,16 @@ export const usePOSStore = create<POSState>()(
         )
         if (!order) return
 
-        let openOrders = stashSnapshot(
-          state.openOrders,
+        // Drop the order's stale snapshot first: when the active cart is on
+        // the same table, stashing afterwards must not be overwritten by it.
+        let openOrders = withoutSnapshot(state.openOrders, order.tableId)
+        openOrders = stashSnapshot(
+          openOrders,
           state.tableId,
           state.cart,
           state.discount,
           state.note,
         )
-        openOrders = withoutSnapshot(openOrders, order.tableId)
 
         set({
           cart: order.items.map((line, index) => ({
@@ -723,12 +725,16 @@ export const usePOSStore = create<POSState>()(
           updatedAt: now,
         }
 
+        const isEditing = state.editingPendingOrderId === order.id
         set((prev) => ({
           history: prev.history.map((item) => (item.id === order.id ? paid : item)),
           queue: [
             ...prev.queue.filter((item) => item.id !== order.clientId),
             createOrderQueueItem(order.clientId, payload, expected, now),
           ],
+          // "Thêm món" leaves the editing order in the active cart; paying it
+          // finishes that order, so clear the working order as well.
+          ...(isEditing ? emptyOrder() : {}),
           openOrders: withoutSnapshot(prev.openOrders, order.tableId),
           editingPendingOrderId:
             prev.editingPendingOrderId === order.id
@@ -742,7 +748,10 @@ export const usePOSStore = create<POSState>()(
 
       cancelPendingOrder: (orderId) => {
         const state = get()
-        const order = state.history.find((item) => item.id === orderId)
+        const order = state.history.find(
+          (item) =>
+            item.id === orderId && item.status === 'pending_payment',
+        )
         if (!order) return
 
         set((prev) => ({
