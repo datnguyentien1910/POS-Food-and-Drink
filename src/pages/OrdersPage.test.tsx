@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../components/ui/Toast'
 import { formatVND } from '../lib/format'
@@ -76,18 +77,26 @@ const resetStore = () => {
   })
 }
 
-const renderWithToast = (onOpenReceipt = vi.fn()) =>
+const renderPage = (onOpenReceipt = vi.fn()) =>
   render(
-    <ToastProvider>
-      <OrdersPage onOpenReceipt={onOpenReceipt} />
-    </ToastProvider>,
+    <MemoryRouter initialEntries={['/orders']}>
+      <ToastProvider>
+        <Routes>
+          <Route
+            path="/orders"
+            element={<OrdersPage onOpenReceipt={onOpenReceipt} />}
+          />
+          <Route path="/pos" element={<p>POS probe</p>} />
+        </Routes>
+      </ToastProvider>
+    </MemoryRouter>,
   )
 
 describe('OrdersPage', () => {
   beforeEach(resetStore)
 
   it('shows an empty state when there is no history', () => {
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getByRole('heading', { name: 'Đơn hàng' })).toBeInTheDocument()
     expect(screen.getByText('Chưa có đơn nào')).toBeInTheDocument()
@@ -102,7 +111,7 @@ describe('OrdersPage', () => {
       ],
     })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     const cards = screen.getAllByRole('article')
     expect(cards).toHaveLength(3)
@@ -120,7 +129,7 @@ describe('OrdersPage', () => {
       ],
     })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getAllByRole('article')).toHaveLength(1)
     expect(screen.getByText('HD-20261118-010')).toBeInTheDocument()
@@ -139,7 +148,7 @@ describe('OrdersPage', () => {
       ],
     })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
     const search = screen.getByRole('searchbox', { name: 'Tìm đơn hàng' })
 
     await user.type(search, '002')
@@ -158,7 +167,7 @@ describe('OrdersPage', () => {
     const order = makeOrder('HD-20261118-001', at(0))
     usePOSStore.setState({ history: [order] })
 
-    render(<OrdersPage onOpenReceipt={onOpenReceipt} />)
+    renderPage(onOpenReceipt)
     await user.click(screen.getByRole('button', { name: /Xem hoá đơn/ }))
 
     expect(onOpenReceipt).toHaveBeenCalledWith(order)
@@ -168,7 +177,7 @@ describe('OrdersPage', () => {
     const user = userEvent.setup()
     usePOSStore.setState({ history: [makeOrder('HD-20261118-001', at(0))] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
     await user.type(
       screen.getByRole('searchbox', { name: 'Tìm đơn hàng' }),
       'khong-co',
@@ -193,7 +202,7 @@ describe('OrdersPage', () => {
       ],
     })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getByText('Chờ đồng bộ')).toBeInTheDocument()
     expect(screen.getByText('OFF-ABCD1234')).toBeInTheDocument()
@@ -212,7 +221,7 @@ describe('OrdersPage', () => {
     })
     usePOSStore.setState({ history: [makeOrder('OFF-ABCD1234', at(0))] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Huỷ đơn OFF-ABCD1234' }))
     await user.click(screen.getByRole('button', { name: 'Huỷ đơn' }))
@@ -233,7 +242,7 @@ describe('OrdersPage', () => {
     })
     usePOSStore.setState({ history: [makeOrder('HD-20261118-001', at(0))] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(
       screen.queryByRole('button', { name: /^Huỷ đơn/ }),
@@ -244,7 +253,7 @@ describe('OrdersPage', () => {
   it('badges a pending order with gold "Chờ thanh toán"', () => {
     usePOSStore.setState({ history: [makePendingOrder('HD-PEND-001')] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getByText('Chờ thanh toán')).toHaveClass(
       'bg-gold-soft',
@@ -259,7 +268,7 @@ describe('OrdersPage', () => {
       ],
     })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getByText('Đã huỷ')).toHaveClass(
       'bg-negative-soft',
@@ -270,7 +279,7 @@ describe('OrdersPage', () => {
   it('badges a completed order with positive "Thành công"', () => {
     usePOSStore.setState({ history: [makeOrder('HD-DONE-001', at(0))] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getByText('Thành công')).toHaveClass(
       'bg-positive-soft',
@@ -288,7 +297,7 @@ describe('OrdersPage', () => {
       ],
     })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getByText('Chờ thanh toán')).toBeInTheDocument()
     expect(screen.getByText('Chờ đồng bộ')).toBeInTheDocument()
@@ -302,7 +311,7 @@ describe('OrdersPage', () => {
     } as unknown as LocalOrder
     usePOSStore.setState({ history: [legacy] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getByText('Thành công')).toHaveClass('bg-positive-soft')
     expect(screen.getByText('Chỉ trên máy')).toBeInTheDocument()
@@ -316,7 +325,7 @@ describe('OrdersPage', () => {
       editingPendingOrderId: editing.id,
     })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     expect(screen.getAllByRole('article')).toHaveLength(1)
     expect(screen.getByText('HD-OTHER-001')).toBeInTheDocument()
@@ -330,7 +339,7 @@ describe('OrdersPage', () => {
     const other = makePendingOrder('HD-PEND-001', 'Bàn 03', 123000)
     usePOSStore.setState({ history: [target, other] })
 
-    renderWithToast(onOpenReceipt)
+    renderPage(onOpenReceipt)
 
     const targetCard = screen
       .getAllByRole('article')
@@ -356,11 +365,28 @@ describe('OrdersPage', () => {
     )
   })
 
+  it('navigates to POS after clicking Thêm món from Orders', async () => {
+    const user = userEvent.setup()
+    const target = makePendingOrder('HD-PEND-NAV')
+    usePOSStore.setState({ history: [target] })
+
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Thanh toán' }))
+    await user.click(screen.getByRole('button', { name: 'Thêm món' }))
+
+    expect(screen.getByText('POS probe')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const state = usePOSStore.getState()
+    expect(state.editingPendingOrderId).toBe(target.id)
+    expect(state.cart.map((line) => line.menuItemId)).toEqual(['ga-nuong'])
+  })
+
   it('cancels a pending order directly and swaps its badge', async () => {
     const user = userEvent.setup()
     usePOSStore.setState({ history: [makePendingOrder('HD-PEND-003')] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Huỷ' }))
 
@@ -380,7 +406,7 @@ describe('OrdersPage', () => {
     const pending = makePendingOrder('HD-PEND-001')
     usePOSStore.setState({ history: [paid, cancelled, pending] })
 
-    render(<OrdersPage onOpenReceipt={vi.fn()} />)
+    renderPage()
 
     const cardFor = (code: string) =>
       screen

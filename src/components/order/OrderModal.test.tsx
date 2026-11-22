@@ -381,6 +381,44 @@ describe('OrderModal — chế độ tạo', () => {
       total: 117720,
     })
   })
+
+  it('pays a resumed pending order in place instead of creating a duplicate', async () => {
+    const user = userEvent.setup()
+    const order = createPendingOrder()
+    expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(true)
+
+    // Thêm món resumes the pending order into the POS cart; the cashier adds
+    // another item and checks out from the create-mode modal.
+    usePOSStore.getState().resumePendingOrder(order.id)
+    usePOSStore.getState().addItem('khoai-tay-chien')
+    renderOrderModal()
+
+    await user.click(screen.getByRole('button', { name: 'Thanh toán' }))
+    expect(usePOSStore.getState().history.filter((item) => item.status === 'completed')).toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: 'Vẫn thanh toán' }))
+
+    const state = usePOSStore.getState()
+    const saleOrders = state.history.filter(
+      (item) => item.clientId === order.clientId,
+    )
+    expect(saleOrders).toHaveLength(1)
+    expect(saleOrders[0]).toMatchObject({ id: order.id, status: 'completed' })
+    expect(saleOrders[0].items.map((item) => item.menuItemId)).toEqual([
+      'ga-nuong',
+      'nuoc-chanh',
+      'khoai-tay-chien',
+    ])
+    expect(saleOrders[0].total).toBeGreaterThan(order.total)
+    expect(saleOrders[0].received).toBe(saleOrders[0].total)
+    expect(saleOrders[0].change).toBe(0)
+    expect(
+      state.history.filter((item) => item.status === 'pending_payment'),
+    ).toHaveLength(0)
+    expect(state.editingPendingOrderId).toBeNull()
+    expect(state.isTableBusy('ban-5')).toBe(false)
+    expect(state.queue.filter((item) => item.id === order.clientId)).toHaveLength(1)
+    expect(screen.getByText('Thanh toán thành công')).toBeInTheDocument()
+  })
 })
 
 function createPendingOrder({ serveFirst = false } = {}) {

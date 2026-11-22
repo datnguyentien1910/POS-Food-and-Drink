@@ -238,6 +238,32 @@ export function OrderModal({
     // `assignTable` (not `setTable`) keeps the cart on the selected table
     // without stashing it into `openOrders` before the order is saved.
     assignTable(selectedTableId)
+
+    // A resumed pending order is still the same sale: its live cart has to be
+    // upserted into that record and paid in place. Calling `completeOrder`
+    // here would create a second order while leaving the original row
+    // `pending_payment`, keeping the table busy and leaving a stale charge.
+    if (editingPendingOrderId !== null) {
+      const saved = savePendingOrder()
+      if (!saved) return
+
+      // The displayed total is the live cart, which is what `savePendingOrder`
+      // persisted. Preserve the cashier's intended change while absorbing any
+      // difference between the displayed and saved totals.
+      const paymentChange = Math.max(0, receivedNumber - viewTotals.total)
+      const paid = payPendingOrder(saved.clientId, {
+        method,
+        ...(method === 'cash'
+          ? { received: saved.total + paymentChange, change: paymentChange }
+          : {}),
+      })
+      if (!paid) return
+
+      setCompleted(paid)
+      push(`Đã thanh toán ${formatVND(paid.total)}`, 'success')
+      return
+    }
+
     const order = completeOrder({
       method,
       expectedTotal: totals.total,

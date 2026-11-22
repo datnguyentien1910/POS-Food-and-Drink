@@ -8,6 +8,7 @@ import {
   Ban,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { formatDateTime, formatVND } from '../lib/format'
 import { matchesQuery } from '../lib/search'
 import { cancel } from '../services/orderService'
@@ -81,6 +82,7 @@ function SyncNote({ order }: { order: OrderRecord }) {
 }
 
 export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
+  const navigate = useNavigate()
   const history = usePOSStore((state) => state.history)
   const editingPendingOrderId = usePOSStore(
     (state) => state.editingPendingOrderId,
@@ -339,6 +341,7 @@ export function OrdersPage({ onOpenReceipt }: OrdersPageProps) {
           open
           orderId={payingOrderId}
           onClose={() => setPayingOrderId(null)}
+          onAddItems={() => navigate('/pos')}
           onOpenReceipt={(paid) => {
             onOpenReceipt(paid)
             setPayingOrderId(null)
