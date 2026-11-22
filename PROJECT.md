@@ -56,7 +56,7 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | Backend/API/đăng nhập/đồng bộ | **[Cập nhật] Dùng thật** — NestJS + PostgreSQL trong `server/`; PIN theo thiết bị; hàng đợi đơn + sync nền |
 | Thanh toán ngân hàng/thẻ thật | **Chưa có** — chỉ ghi nhận phương thức |
 | Máy in ESC/POS | **Chưa có** — in qua hộp thoại trình duyệt |
-| Test | **[Cập nhật] 177/177 pass** (root, 33 file) + server 57 unit / 75 e2e |
+| Test | **[Cập nhật] 179/179 pass** (root, 33 file) + server 57 unit / 75 e2e |
 | Lint | `oxlint` sạch (root); `eslint` sạch (server) |
 | Build | Pass; PWA precache 30 entries (~1.68 MB) |
 | QA giao diện | 1440×900, 1280×800, 1024×768, 390×844; touch 768×1024 |
@@ -170,7 +170,7 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 | Kiểm tra | Kết quả |
 | --- | --- |
-| `npm test` (root) | 177 pass / 33 file |
+| `npm test` (root) | 179 pass / 33 file |
 | `npm run lint` (root) | Pass (`oxlint`) |
 | `npm run build` (root) | Pass; TypeScript strict + Vite build |
 | `server`: `lint`/`test`/`test:e2e`/`build` | Pass; 57 unit / 75 e2e |
@@ -471,7 +471,7 @@ total         = taxable + tax
 ```bash
 npm install
 npm run dev        # http://localhost:5173, proxy /api → :3001
-npm test           # 177 test
+npm test           # 179 test
 npm run lint       # oxlint
 npm run build      # tsc -b + vite build
 npm run preview    # chạy bản build/PWA
@@ -554,7 +554,7 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 ### 7.1 Điểm mạnh
 
 - **Domain rõ ràng:** types tách biệt, tiền/đơn hàng có snapshot, không trộn UI với nghiệp vụ.
-- **Test có giá trị:** 177 test tập trung vào tính tiền, store, tìm kiếm, routing, luồng chính; không phải test hình thức.
+- **Test có giá trị:** 179 test tập trung vào tính tiền, store, tìm kiếm, routing, luồng chính; không phải test hình thức.
 - **Persistence được gia cố:** validate shape/version, cảnh báo lỗi ghi — hiếm dự án frontend nhỏ làm đủ.
 - **In hoá đơn thực dụng:** đã kiểm tra PDF thật, xử lý tên dài, không chỉ “CSS đẹp”.
 - **Responsive có chủ đích:** 4 kích thước, touch target, breakpoint menu hợp lý.
@@ -630,7 +630,7 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 - Thêm migration helper cho persist (chuẩn bị version 2).
 - Sửa các P1 nhỏ (global search, print scope, lazy ảnh).
 
-**Done khi:** POS vẫn ≥177 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
+**Done khi:** POS vẫn ≥179 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
 
 ### 8.3 Phase 1 — Nền tảng backend (backend-only) ✅
 
@@ -992,7 +992,7 @@ npm run preview
 | 2026-11-19 | Review độc lập; sửa PWA config, persist hỏng, cảnh báo lưu trữ, touch target |
 | 2026-11-19 | 113/113 test, lint/build pass; mở PR #1 |
 | 2026-11-19 | Viết `PROJECT.md` làm tài liệu gốc cho các fork |
-| 2026-11-21 | Gia cố nền tảng: hash router, ErrorBoundary, sửa "Xoá đơn" (177/177 test) |
+| 2026-11-21 | Gia cố nền tảng: hash router, ErrorBoundary, sửa "Xoá đơn" (179/179 test) |
 
 ---
 

@@ -136,6 +136,6 @@ public/               favicon và icon PWA
 
 ## Kiểm thử
 
-Bộ test hiện có 177 test cho logic tính tiền, store, tìm kiếm, routing, các luồng giỏ hàng/thanh toán/đơn nháp và các component chính. Test chạy trên jsdom với viewport 1440×900; kiểm tra giao diện thật được thực hiện thêm bằng trình duyệt ở các kích thước 1440×900, 1280×800, 1024×768 và 390×844. Ảnh tham chiếu: [desktop](docs/screenshots/pos-desktop.jpg), [1024×768](docs/screenshots/pos-1024.jpg), [mobile](docs/screenshots/pos-mobile.jpg).
+Bộ test hiện có 179 test cho logic tính tiền, store, tìm kiếm, routing, các luồng giỏ hàng/thanh toán/đơn nháp và các component chính. Test chạy trên jsdom với viewport 1440×900; kiểm tra giao diện thật được thực hiện thêm bằng trình duyệt ở các kích thước 1440×900, 1280×800, 1024×768 và 390×844. Ảnh tham chiếu: [desktop](docs/screenshots/pos-desktop.jpg), [1024×768](docs/screenshots/pos-1024.jpg), [mobile](docs/screenshots/pos-mobile.jpg).
 
 Thiết kế tham chiếu: [Restaurant POS Dashboard UI Design](https://dribbble.com/shots/27321876-Restaurant-POS-Dashboard-UI-Design) của Rexnor studio. Font Plus Jakarta Sans, icon Lucide.
