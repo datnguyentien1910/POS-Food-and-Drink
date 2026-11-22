@@ -34,9 +34,17 @@
 >
 > - **Popup `xl` (~1024px), 2 cột trên desktop** (trái: chọn bàn + danh sách món; phải: ghi chú/giảm giá/tổng/phương thức thanh toán/nút), co về 1 cột trên mobile. `Modal` thêm size `xl` (`max-w-5xl`), các size cũ giữ nguyên.
 > - **Panel phải giờ chỉ quản lý món + tổng tiền + nút Tạo đơn** (kèm lưu tạm/xoá đơn). Không còn `TableBadge`, nút “Mang ra”/“Đã ra” hay “Chọn tất cả”.
-> - **Chọn bàn và tick món đã mang ra chuyển hết vào `OrderModal`**, dùng được ở **cả chế độ tạo mới và đơn chờ**: “Mang ra”/“Đã ra” từng món + “Chọn tất cả”. Ở chế độ chờ, số lượng chỉ đọc (muốn sửa dùng “Thêm món” ở POS).
+> - **Chọn bàn và tick món đã mang ra chuyển hết vào `OrderModal`**, dùng được ở **cả chế độ tạo mới và đơn chờ**: “Mang ra”/“Đã ra” từng món + “Chọn tất cả”. Ở chế độ chờ, **món chưa ra giờ sửa được ngay trong popup** (stepper −/+ và xoá; xem block cập nhật cuối phần mở đầu); món đã ra vẫn khoá, “Thêm món” vẫn dùng để thêm món mới.
 > - **Đổi bàn đơn chờ:** `setPendingOrderTable` vá ngay `tableId`/`tableName` trên chính bản ghi `pending_payment` (giữ `clientId`, không tạo bản mới) — bàn cũ hết bận, bàn mới bận. `setPendingLineServed`/`setAllPendingServed` vá cờ `served` trên đơn đó, không đụng giỏ active hay `editingPendingOrderId`.
 > - **Persist vẫn là `restodash-pos-v1` v4; server không đổi** (không migration mới, không đổi schema/e2e). Dòng đã ra vẫn khoá stepper/xoá ở mọi nơi; cảnh báo thanh toán 2 bước giữ nguyên.
+
+> **Cập nhật 22/11/2026 — sửa món chưa ra trong popup đơn chờ (đã shipped).** Spec/plan tại `docs/superpowers/specs/2026-11-22-edit-pending-items-design.md` và `docs/superpowers/plans/2026-11-22-edit-pending-items.md`; báo cáo tại `docs/superpowers/reports/2026-11-22-edit-pending-items-report.md`. Tóm tắt khi đọc code:
+>
+> - **Popup Chi tiết đơn chờ** (mở từ Bàn/Orders) giờ dùng chung `CartRow`: món **chưa ra** có stepper **− / +** và nút **Xoá** ngay trong popup; không còn chú thích “số lượng cố định / dùng Thêm món để sửa”.
+> - **Tổng tiền và tiền thu tính lại ngay** sau mỗi lần sửa (`calcTotals` từ món hiện tại + giảm giá) — ô tiền mặt/thối làm mới theo tổng mới; cảnh báo thanh toán 2 bước vẫn giữ nguyên.
+> - **Món đã ra (`served: true`) vẫn khoá** giảm/tăng/xoá theo policy A (ADR-22); chỉ toggle “Mang ra/Đã ra”. **“Thêm món” vẫn có** để thêm món mới (resume đơn về giỏ POS).
+> - Store có `setPendingLineQty`/`removePendingLine` vá đúng bản ghi `pending_payment`; nếu đơn đang soạn (`editingPendingOrderId`) thì đồng bộ cả giỏ active để lưu/thu tiền không ghi đè. `lineId` giữ ổn định qua lần xoá (`pendingLineIndex`).
+> - **Persist vẫn `restodash-pos-v1` v4, server/schema/e2e không đổi, không đổi brand.**
 
 ## Mục lục
 
@@ -80,7 +88,7 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | Backend/API/đăng nhập/đồng bộ | **[Cập nhật] Dùng thật** — NestJS + PostgreSQL trong `server/`; PIN theo thiết bị; hàng đợi đơn + sync nền |
 | Thanh toán ngân hàng/thẻ thật | **Chưa có** — chỉ ghi nhận phương thức |
 | Máy in ESC/POS | **Chưa có** — in qua hộp thoại trình duyệt |
-| Test | **[Cập nhật 22/11] 329/329 pass** (root, 39 file) + server 64 unit / 108 e2e |
+| Test | **[Cập nhật 22/11] 346/346 pass** (root, 39 file) + server 64 unit / 108 e2e |
 | Lint | `oxlint` sạch (root, 5 warning fast-refresh cũ); `oxlint --type-aware` sạch (server) |
 | Build | Pass; PWA precache 30 entries (~1.68 MB) |
 | QA giao diện | 1440×900, 1280×800, 1024×768, 390×844; touch 768×1024 |
@@ -112,6 +120,7 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | Menu, tìm kiếm món | `src/components/menu/`, `src/lib/menu-query.ts` |
 | Giỏ hàng, panel đơn (chỉ món + tổng tiền + “Tạo đơn”) | `src/components/order/OrderPanel.tsx`, `CartRow.tsx` |
 | Popup đơn dùng chung (`xl` 2 cột; tạo/chờ thanh toán/thu tiền/huỷ, POS + Bàn + Orders; chọn bàn + served trong popup) | `src/components/order/OrderModal.tsx` |
+| Sửa món chưa ra trong popup đơn chờ (stepper −/+, xoá, tổng/tiền thu tính lại; món đã ra khoá) | `src/components/order/OrderModal.tsx`, `src/store/usePOSStore.ts` (`setPendingLineQty`, `removePendingLine`) |
 | 3 trạng thái đơn trên Orders | `src/pages/OrdersPage.tsx` (`StatusBadge`) |
 | Hoá đơn | `src/components/receipt/Receipt.tsx`, `src/components/modals/ReceiptModal.tsx` |
 | Tìm kiếm toàn cục | `src/components/search/GlobalSearch.tsx`, `src/lib/global-search.ts` |
@@ -199,7 +208,7 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 | Kiểm tra | Kết quả |
 | --- | --- |
-| `npm test` (root) | **[Cập nhật 22/11] 329 pass / 39 file** |
+| `npm test` (root) | **[Cập nhật 22/11] 346 pass / 39 file** |
 | `npm run lint` (root) | Pass (`oxlint`, 5 warning fast-refresh có sẵn ở `router.tsx`) |
 | `npm run build` (root) | Pass; TypeScript strict + Vite build |
 | `server`: `lint`/`test`/`test:e2e`/`build` | **[Cập nhật 22/11] Pass; 64 unit / 108 e2e** |
@@ -274,8 +283,16 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 - `OrderModal` dùng `size="xl"` (`max-w-5xl`, ~1024px): desktop 2 cột (trái chọn bàn + món, phải ghi chú/giảm giá/tổng/thanh toán/nút), mobile 1 cột. `Modal` chỉ thêm một size, các size cũ (`sm`/`md`/`lg`) giữ nguyên.
 - Chọn bàn/Mang đi + tick served (“Mang ra”/“Đã ra”, “Chọn tất cả”) nằm trong popup cho **cả chế độ tạo và đơn chờ**; panel phải chỉ còn dòng món + tổng + **Tạo đơn** (lưu tạm/xoá đơn giữ nguyên).
-- Đổi bàn đơn chờ dùng `setPendingOrderTable` (vá ngay bản ghi `pending_payment`, bàn cũ hết bận); tick served dùng `setPendingLineServed`/`setAllPendingServed` — không resume, không đụng giỏ active. Chế độ chờ giữ số lượng chỉ đọc.
+- Đổi bàn đơn chờ dùng `setPendingOrderTable` (vá ngay bản ghi `pending_payment`, bàn cũ hết bận); tick served dùng `setPendingLineServed`/`setAllPendingServed` — không resume, không đụng giỏ active. Chế độ chờ khi đó giữ số lượng chỉ đọc; hiện món chưa ra đã sửa được trong popup (xem block cập nhật đầu file và §8.4d).
 - `CartRow` khoá stepper của dòng đã ra bằng `<fieldset disabled>` ở mọi nơi (kể cả panel không có nút served); badge/toggle “Mang ra/Đã ra” vẫn chỉ hiện khi `showServed`. Persist vẫn `restodash-pos-v1` v4; server không đổi.
+
+**[Cập nhật 22/11] Sửa món trong popup đơn chờ:**
+
+- Popup Chi tiết đơn chờ (từ Bàn/Orders) dùng chung `CartRow` cho cả 2 chế độ: món **chưa ra** có stepper −/+ và nút Xoá, dùng **cùng style và vùng chạm** với giỏ POS; món **đã ra** vẫn bị khoá stepper/xoá, chỉ toggle served được.
+- `setPendingLineQty(orderId, lineId, qty)` (qty ≤ 0 → xoá dòng) và `removePendingLine(orderId, lineId)` chỉ vá bản ghi `pending_payment` khớp id, no-op với dòng đã ra/đơn khác; tính lại `subtotal`/`discountAmount`/`tax`/`total` bằng `calcTotals` (fallback `discountAmount` nếu đơn cũ thiếu `discount`) và cập nhật `updatedAt`.
+- Nếu `editingPendingOrderId === orderId`, cùng thay đổi được áp vào giỏ active để `savePendingOrder()`/`payPendingOrder()` không ghi đè; `pendingLineIndex` giữ `lineId` ổn định sau khi xoá dòng (tránh lệch chỉ số snapshot).
+- `OrderModal` tính `viewTotals` từ món hiện tại thay vì field tổng đã lưu (có thể cũ), và reset `receivedInput` về tổng mới khi tổng đổi. Nút “Chọn tất cả”, cảnh báo thanh toán 2 bước, save-before-pay, 3 badge trạng thái giữ nguyên; “Thêm món” vẫn là cách thêm món mới.
+- **Không đổi** persist key/version (`restodash-pos-v1` v4), server/schema/e2e, branding, dependency hay luật cảnh báo.
 
 ---
 
@@ -407,6 +424,9 @@ GlobalSearch ──searchEverything──▶ menu + drafts + history
 
 TablesPage ──switchTable──▶ usePOSStore.openOrders[tableId] ──▶ POS (cart/discount/note)
 TablesPage (bàn có đơn chờ) ──▶ OrderModal(orderId) ──▶ thanh toán / huỷ
+OrderModal(đơn chờ) ──setPendingLineQty/removePendingLine──▶ history[pending_payment]
+                         ├── calcTotals ──▶ tổng + tiền thu/thối trong popup
+                         └── (đang soạn) ──▶ cart active (tránh ghi đè khi lưu/thu)
 useCatalogStore.pendingTableOps ──flushTableOps──▶ API /tables ──▶ server (xoá mềm)
 ```
 
@@ -523,6 +543,7 @@ Store còn giữ `editingPendingOrderId: string | null` (persist v4): id đơn c
   - `payPendingOrder(id, input)`: lưu trước các chỉnh sửa đang có nếu cần, rồi tính lại `received`/`change` theo tổng đã lưu, dùng lại `clientId` làm id queue item (`CREATE_ORDER`) và đổi `status: 'completed'`.
   - `cancelPendingOrder(id)`: `status: 'cancelled'`, bỏ queue item nếu có, clear `editingPendingOrderId` khi trùng.
   - `isTableBusy` / `tableServingState`: bàn có đơn chờ vẫn bận; chỉ rảnh khi thu tiền hoặc huỷ. `resetOrder`/`saveDraft` cũng clear `editingPendingOrderId`.
+  - **[22/11] Sửa dòng đơn chờ:** `setPendingLineQty`/`removePendingLine` vá qty/xoá dòng **chưa ra** trên đúng bản ghi `pending_payment`, tính lại totals bằng `calcTotals`, mirror vào `cart` nếu đơn đang được soạn; `pendingLineIndex` giữ `lineId` gốc khi danh sách bị dịch chỉ số sau lần xoá. Dòng `served: true` bị no-op.
 
 **Giới hạn:** một thiết bị, một tab. Mở nhiều tab có thể ghi đè lẫn nhau. Migration hiện hỗ trợ tới version 4. Đơn mở, đơn chờ và thao tác bàn chỉ có trên thiết bị này; server chỉ nhận đơn đã thanh toán.
 
@@ -555,7 +576,7 @@ total         = taxable + tax
 ```bash
 npm install
 npm run dev        # http://localhost:5173, proxy /api → :3001
-npm test           # 329 test (39 file)
+npm test           # 346 test (39 file)
 npm run lint       # oxlint
 npm run build      # tsc -b + vite build
 npm run preview    # chạy bản build/PWA
@@ -648,7 +669,9 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 | **[22/11]** Bàn bận tới khi thu/huỷ đơn chờ | Thu tiền nhầm bàn đang phục vụ | `isTableBusy`, `tableServingState`, `TablesPage` tests |
 | **[22/11]** Chọn bàn/served nằm trong popup, panel chỉ quản lý món | Hai chỗ sửa cùng một đơn | `OrderModal`, `OrderPanel`, `Modal` tests |
 | **[22/11]** Đổi bàn đơn chờ giải phóng bàn cũ | Bàn cũ bận → thu nhầm/chặn bàn | `setPendingOrderTable`, `OrderModal.test.tsx` |
-| **[22/11]** Dòng đã ra khoá stepper ở mọi nơi | Store no-op nhưng UI trông còn bấm được | `CartRow` `<fieldset disabled>`, `OrderPanel.test.tsx` |
+| **[22/11]** Dòng đã ra khoá stepper ở mọi nơi | Store no-op nhưng UI trông còn bấm được | `CartRow` `<fieldset disabled>`, `OrderPanel.test.tsx`, `OrderModal.test.tsx` |
+| **[22/11]** Sửa dòng chờ không đụng dòng đã ra/đơn khác | Sửa nhầm món đã phục vụ hoặc đơn đang soạn | `setPendingLineQty`/`removePendingLine` no-op + `pendingLineIndex`, store tests |
+| **[22/11]** Tổng/tiền thu theo món hiện tại | Tổng cũ đã lưu làm thu thiếu/thừa tiền | `OrderModal` `viewTotals` + reset `receivedInput`, `OrderModal.test.tsx` |
 
 ---
 
@@ -657,7 +680,7 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 ### 7.1 Điểm mạnh
 
 - **Domain rõ ràng:** types tách biệt, tiền/đơn hàng có snapshot, không trộn UI với nghiệp vụ.
-- **Test có giá trị:** 329 test (root) + 64 unit / 108 e2e (server), tập trung vào tính tiền, store/persist v4, bàn (đơn mở, served, CRUD/xoá mềm), đơn chờ (không trùng bản ghi, giữ giỏ khi resume, cash fields, vá bàn/served), popup dùng chung (2 cột, chọn bàn trong popup), 3 trạng thái đơn, tìm kiếm, routing, luồng chính; không phải test hình thức.
+- **Test có giá trị:** 346 test (root) + 64 unit / 108 e2e (server), tập trung vào tính tiền, store/persist v4, bàn (đơn mở, served, CRUD/xoá mềm), đơn chờ (không trùng bản ghi, giữ giỏ khi resume, cash fields, vá bàn/served, sửa qty/xoá dòng chưa ra và totals), popup dùng chung (2 cột, chọn bàn trong popup, stepper/xoá món chờ), 3 trạng thái đơn, tìm kiếm, routing, luồng chính; không phải test hình thức.
 - **Persistence được gia cố:** validate shape/version, cảnh báo lỗi ghi — hiếm dự án frontend nhỏ làm đủ.
 - **In hoá đơn thực dụng:** đã kiểm tra PDF thật, xử lý tên dài, không chỉ “CSS đẹp”.
 - **Responsive có chủ đích:** 4 kích thước, touch target, breakpoint menu hợp lý.
@@ -785,10 +808,21 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 **Mục tiêu đã giao:** phóng to popup và dồn thao tác chọn bàn/served vào đó; panel phải chỉ quản lý món.
 
 - **UI:** `Modal` thêm size `xl` (`max-w-5xl`, ~1024px); `OrderModal` desktop 2 cột (trái: chọn bàn/Mang đi + danh sách món; phải: ghi chú/giảm giá/tổng/phương thức/nút), mobile 1 cột. `OrderPanel` bỏ `TableBadge`, “Mang ra/Đã ra”, “Chọn tất cả”; giữ dòng món, tổng, **Tạo đơn**, lưu tạm, xoá đơn.
-- **Hành vi:** chọn bàn và tick served dùng được ở cả chế độ tạo và đơn chờ; chế độ chờ giữ số lượng chỉ đọc. Đổi bàn đơn chờ vá ngay bản ghi `pending_payment` (`setPendingOrderTable`) — bàn cũ về trống, bàn mới bận, món/tổng/`clientId` giữ nguyên; tick served vá đúng đơn (`setPendingLineServed`/`setAllPendingServed`), không resume.
+- **Hành vi:** chọn bàn và tick served dùng được ở cả chế độ tạo và đơn chờ (khi đó số lượng chờ còn chỉ đọc — đã nâng cấp ở §8.4d). Đổi bàn đơn chờ vá ngay bản ghi `pending_payment` (`setPendingOrderTable`) — bàn cũ về trống, bàn mới bận, món/tổng/`clientId` giữ nguyên; tick served vá đúng đơn (`setPendingLineServed`/`setAllPendingServed`), không resume.
 - **Giữ nguyên:** persist `restodash-pos-v1` v4 (không migration mới), server/schema/e2e không đổi, luật món đã ra khoá sửa/xoá, cảnh báo thanh toán 2 bước, 3 badge trạng thái Orders, brand RestoDash.
 
 **Done khi:** popup ~1024px/2 cột trên desktop, mobile không tràn; panel phải sạch điều khiển bàn/served; đổi bàn đơn chờ đúng bàn cũ/mới; full test + lint + build + e2e xanh. ✅ Đạt được 22/11/2026 (xem báo cáo `docs/superpowers/reports/2026-11-22-order-popup-ui-report.md`).
+
+### 8.4d Phase 2b (tiếp) — Sửa món chưa ra trong popup đơn chờ ✅ (đã shipped 22/11/2026, branch `feat/order-popup`)
+
+**Mục tiêu đã giao:** bỏ chế độ “số lượng cố định” ở popup đơn chờ; cho sửa ngay món chưa mang ra mà không mất đơn/không tạo bản trùng.
+
+- **UI:** `OrderModal` dùng `CartRow` cho danh sách món ở cả 2 chế độ — món chờ có stepper −/+ và nút Xoá; tổng `viewTotals` lấy từ món hiện tại (`calcTotals`), ô tiền thu/thối tự cập nhật. Bỏ chú thích “Số lượng cố định…”.
+- **Store:** `setPendingLineQty`/`removePendingLine` vá bản ghi `pending_payment`, no-op với dòng đã ra; mirror vào `cart` khi `editingPendingOrderId === orderId`; `pendingLineIndex` giữ `lineId` ổn định sau lần xoá. `CartRow` hiển thị tên/giá từ snapshot khi có.
+- **Giữ nguyên:** món đã ra khoá theo policy A (ADR-22) — chỉ toggle served; “Thêm món” vẫn thêm món mới; cảnh báo thanh toán 2 bước, 3 badge Orders, persist `restodash-pos-v1` v4, server/schema/e2e, brand không đổi.
+- **Spec/plan/report:** [Spec](docs/superpowers/specs/2026-11-22-edit-pending-items-design.md) · [Plan](docs/superpowers/plans/2026-11-22-edit-pending-items.md) · [Báo cáo](docs/superpowers/reports/2026-11-22-edit-pending-items-report.md).
+
+**Done khi:** giảm/tăng/xoá món chưa ra trong popup cập nhật đúng tổng và tiền thu; món đã ra không sửa được; lưu/thu đơn đang soạn không bị ghi đè; full test + lint + build + e2e xanh. ✅ Đạt được 22/11/2026.
 
 ### 8.5 Phase 3 — Đặt bàn (3–5 ngày)
 
@@ -1077,6 +1111,7 @@ npm run preview
 14. **[22/11]** POS → “Tạo đơn” → popup: **Lưu chờ thanh toán** → Orders hiện badge vàng “Chờ thanh toán”, bàn vẫn bận; bấm đơn → “Thêm món” → về POS đúng món → lưu lại → vẫn **một** đơn, không bản trùng.
 15. **[22/11]** Thanh toán đơn chờ còn món chưa ra → cảnh báo 2 bước → thu tiền → badge xanh “Thành công”, bàn về trống, tiền thối đúng tổng sau khi lưu; huỷ đơn → badge đỏ “Đã huỷ”, bàn về trống.
 16. **[22/11] UI popup:** POS → “Tạo đơn” → popup `xl` 2 cột; chọn bàn/Mang đi + “Mang ra”/“Chọn tất cả” ngay trong popup, panel phải không còn các nút đó. Với đơn chờ: đổi bàn trong popup → bàn cũ về trống, bàn mới bận, món/tổng giữ nguyên; tick served cập nhật đúng đơn. Dòng đã ra: stepper bị khoá dù panel không hiện nút served.
+17. **[22/11] Sửa món chờ trong popup:** từ Bàn/Orders mở popup đơn chờ → giảm số lượng một món chưa ra → tổng và tiền thu/thối đổi ngay; tăng lại rồi xoá một dòng → tổng đúng, không còn chú thích “số lượng cố định”. Tick món đó “Đã ra” → stepper/xoá bị khoá (chỉ toggle served). Với đơn đã bấm “Thêm món”: sửa trong popup rồi lưu lại/thanh toán → vẫn **một** đơn, đúng món/số lượng sau sửa. “Thêm món” vẫn thêm được món mới.
 
 ### 11.4 Kiểm tra in
 
@@ -1130,6 +1165,7 @@ npm run preview
 | 2026-11-22 | Chốt thiết kế + plan popup đơn dùng chung; persist v4, `OrderModal` dùng chung POS/Bàn/Orders, 3 trạng thái đơn, đơn chờ local |
 | 2026-11-22 | Tài liệu + full verification popup: root 316/316, server 64 unit / 108 e2e, lint/build xanh; server không đổi |
 | 2026-11-22 | Chỉnh giao diện popup `xl` 2 cột: chọn bàn/served chuyển vào popup (tạo + chờ), đổi bàn đơn chờ giải phóng bàn cũ; root 329/329, server 64 unit / 108 e2e, persist v4/server không đổi |
+| 2026-11-22 | Sửa món chưa ra trong popup đơn chờ: stepper −/+ và xoá món chưa ra, tổng/tiền thu tính lại, món đã ra vẫn khoá; root 346/346 (baseline 331), server 64 unit / 108 e2e, persist v4/server/brand không đổi |
 
 ---
 
@@ -1163,6 +1199,9 @@ npm run preview
 - [Thiết kế chỉnh giao diện popup](docs/superpowers/specs/2026-11-22-order-popup-ui-design.md)
 - [Plan chỉnh giao diện popup](docs/superpowers/plans/2026-11-22-order-popup-ui.md)
 - [Báo cáo chỉnh giao diện popup](docs/superpowers/reports/2026-11-22-order-popup-ui-report.md)
+- [Thiết kế sửa món chờ trong popup](docs/superpowers/specs/2026-11-22-edit-pending-items-design.md)
+- [Plan sửa món chờ trong popup](docs/superpowers/plans/2026-11-22-edit-pending-items.md)
+- [Báo cáo sửa món chờ trong popup](docs/superpowers/reports/2026-11-22-edit-pending-items-report.md)
 - [Ảnh desktop](docs/screenshots/pos-desktop.jpg)
 - [Ảnh 1024×768](docs/screenshots/pos-1024.jpg)
 - [Ảnh mobile](docs/screenshots/pos-mobile.jpg)
