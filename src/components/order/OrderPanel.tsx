@@ -12,6 +12,7 @@ import { RESTAURANT } from '../../config'
 import { getMenuItem } from '../../data/menu'
 import { calcTotals } from '../../lib/calc'
 import { formatVND } from '../../lib/format'
+import { countUnserved } from '../../lib/table-state'
 import { usePOSStore } from '../../store/usePOSStore'
 import { ConfirmModal } from '../modals/ConfirmModal'
 import { Badge } from '../ui/Badge'
@@ -39,11 +40,14 @@ export function OrderPanel({
   className,
 }: OrderPanelProps) {
   const cart = usePOSStore((state) => state.cart)
+  const tableId = usePOSStore((state) => state.tableId)
   const drafts = usePOSStore((state) => state.drafts)
   const discount = usePOSStore((state) => state.discount)
   const increment = usePOSStore((state) => state.increment)
   const decrement = usePOSStore((state) => state.decrement)
   const removeItem = usePOSStore((state) => state.removeItem)
+  const setLineServed = usePOSStore((state) => state.setLineServed)
+  const setAllServed = usePOSStore((state) => state.setAllServed)
   const resetOrder = usePOSStore((state) => state.resetOrder)
   const saveDraft = usePOSStore((state) => state.saveDraft)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -64,6 +68,7 @@ export function OrderPanel({
 
   const itemCount = cart.reduce((sum, line) => sum + line.qty, 0)
   const isEmpty = cart.length === 0
+  const showServed = tableId !== null
 
   const handleSaveDraft = () => {
     if (isEmpty) return
@@ -94,6 +99,16 @@ export function OrderPanel({
           <Badge tone="primary" className="shrink-0">
             {itemCount} món
           </Badge>
+          {showServed && countUnserved(cart) > 0 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={setAllServed}
+              className="h-8 shrink-0 px-2.5 text-[11px]"
+            >
+              Chọn tất cả
+            </Button>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
@@ -178,6 +193,10 @@ export function OrderPanel({
                 onIncrement={() => increment(line.lineId)}
                 onDecrement={() => decrement(line.lineId)}
                 onRemove={() => removeItem(line.lineId)}
+                showServed={showServed}
+                onToggleServed={() =>
+                  setLineServed(line.lineId, line.served !== true)
+                }
               />
             ))}
           </div>
