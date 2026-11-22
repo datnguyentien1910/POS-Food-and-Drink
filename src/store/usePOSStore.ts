@@ -778,10 +778,14 @@ export const usePOSStore = create<POSState>()(
 
       // Popup edits patch the history row in place: pending mode never resumes
       // the order, so the active cart and open snapshots must stay untouched.
-      setPendingOrderTable: (orderId, tableId) =>
+      setPendingOrderTable: (orderId, tableId) => {
+        const isTarget = (order: LocalOrder) =>
+          order.id === orderId && order.status === 'pending_payment'
+        if (!get().history.some(isTarget)) return
+
         set((state) => ({
           history: state.history.map((order) =>
-            order.id === orderId && order.status === 'pending_payment'
+            isTarget(order)
               ? {
                   ...order,
                   tableId,
@@ -790,7 +794,11 @@ export const usePOSStore = create<POSState>()(
                 }
               : order,
           ),
-        })),
+          // A resumed order is saved back from the active cart, whose tableId
+          // would otherwise overwrite this patch with the old table.
+          ...(state.editingPendingOrderId === orderId ? { tableId } : {}),
+        }))
+      },
 
       setPendingLineServed: (orderId, lineId, served) =>
         set((state) => ({

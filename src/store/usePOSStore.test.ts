@@ -1431,5 +1431,34 @@ describe('pending orders', () => {
       expect(state.history[0]).toEqual(before)
       expect(state.queue).toEqual(queueBefore)
     })
+
+    it('keeps the new table when saving a resumed order after a table change', () => {
+      const order = seedTwoLinePending()
+      usePOSStore.getState().resumePendingOrder(order.id)
+      expect(usePOSStore.getState().editingPendingOrderId).toBe(order.id)
+      const cartBefore = usePOSStore.getState().cart
+      const openOrdersBefore = usePOSStore.getState().openOrders
+
+      usePOSStore.getState().setPendingOrderTable(order.id, 'ban-2')
+
+      expect(usePOSStore.getState().tableId).toBe('ban-2')
+      expect(usePOSStore.getState().cart).toEqual(cartBefore)
+      expect(usePOSStore.getState().openOrders).toEqual(openOrdersBefore)
+
+      const saved = usePOSStore.getState().savePendingOrder()!
+
+      expect(saved.id).toBe(order.id)
+      expect(saved.clientId).toBe(order.clientId)
+      expect(saved.tableId).toBe('ban-2')
+      expect(saved.tableName).toBe('Bàn 02')
+      expect(usePOSStore.getState().history[0]).toMatchObject({
+        id: order.id,
+        status: 'pending_payment',
+        tableId: 'ban-2',
+        tableName: 'Bàn 02',
+      })
+      expect(usePOSStore.getState().isTableBusy('ban-5')).toBe(false)
+      expect(usePOSStore.getState().isTableBusy('ban-2')).toBe(true)
+    })
   })
 })
