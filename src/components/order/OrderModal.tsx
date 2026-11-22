@@ -151,6 +151,7 @@ export function OrderModal({
     setModeKey(nextModeKey)
     if (!open) {
       setConfirmedUnserved(false)
+      setCancelOpen(false)
     } else {
       setSelectedTableId(
         isPendingMode ? (pendingOrder?.tableId ?? null) : sourceTableId,
@@ -211,13 +212,20 @@ export function OrderModal({
       if (!pendingOrder) return
 
       // The order being edited may have live, unsaved cart changes. Persist
-      // them into the same record before paying it.
-      if (editingPendingOrderId === orderId) savePendingOrder()
+      // them into the same record before paying it, then recompute the cash
+      // fields against the saved total: the displayed total is the history
+      // snapshot and may be stale at this point.
+      const saved =
+        editingPendingOrderId === orderId ? savePendingOrder() : null
+      const effectiveTotal = saved?.total ?? pendingOrder.total
+      // Keep the cashier's intended change while absorbing the total delta.
+      const paymentChange = Math.max(0, receivedNumber - viewTotals.total)
+      const paymentReceived = effectiveTotal + paymentChange
 
       const paid = payPendingOrder(orderId, {
         method,
         ...(method === 'cash'
-          ? { received: receivedNumber, change }
+          ? { received: paymentReceived, change: paymentChange }
           : {}),
       })
       if (!paid) return

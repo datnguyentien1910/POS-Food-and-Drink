@@ -536,6 +536,82 @@ describe('OrderModal — chế độ đơn chờ', () => {
     expect(state.queue[0].id).toBe(order.clientId)
   })
 
+  it('recomputes cash received from the saved total after adding items', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    const order = usePOSStore.getState().savePendingOrder()!
+
+    // Thêm món → POS adds another item → reopen the popup for that order.
+    usePOSStore.getState().resumePendingOrder(order.id)
+    usePOSStore.getState().addItem('nuoc-chanh')
+    renderOrderModal(true, { orderId: order.id })
+
+    await user.click(screen.getByRole('button', { name: 'Thanh toán' }))
+    await user.click(screen.getByRole('button', { name: 'Vẫn thanh toán' }))
+
+    const state = usePOSStore.getState()
+    const paid = state.history.find((item) => item.id === order.id)!
+    expect(paid.total).toBeGreaterThan(order.total)
+    expect(paid.received).toBe(paid.total)
+    expect(paid.change).toBe(0)
+    expect(state.queue[0]).toMatchObject({
+      expectedTotal: paid.total,
+      payload: {
+        payment: { method: 'CASH', received: paid.total },
+        expectedTotal: paid.total,
+      },
+    })
+  })
+
+  it('keeps the intended change when the saved total of an edited order rises', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().assignTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    const order = usePOSStore.getState().savePendingOrder()!
+
+    usePOSStore.getState().resumePendingOrder(order.id)
+    usePOSStore.getState().addItem('nuoc-chanh')
+    renderOrderModal(true, { orderId: order.id })
+
+    const cashInput = screen.getByRole('spinbutton', {
+      name: 'Tiền khách đưa',
+    })
+    await user.clear(cashInput)
+    await user.type(cashInput, String(order.total + 50_000))
+
+    await user.click(screen.getByRole('button', { name: 'Thanh toán' }))
+    await user.click(screen.getByRole('button', { name: 'Vẫn thanh toán' }))
+
+    const paid = usePOSStore
+      .getState()
+      .history.find((item) => item.id === order.id)!
+    expect(paid.received).toBe(paid.total + 50_000)
+    expect(paid.change).toBe(50_000)
+  })
+
+  it('clears the cancel confirmation when the parent closes the modal', async () => {
+    const user = userEvent.setup()
+    const order = createPendingOrder()
+    const { setOpen } = renderOrderModal(true, { orderId: order.id })
+
+    await user.click(screen.getByRole('button', { name: 'Huỷ đơn' }))
+    expect(screen.getByRole('dialog', { name: 'Huỷ đơn?' })).toBeInTheDocument()
+
+    setOpen(false)
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Huỷ đơn?' }),
+    ).not.toBeInTheDocument()
+    expect(usePOSStore.getState().history[0].status).toBe('pending_payment')
+
+    setOpen(true)
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Huỷ đơn?' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('resets local state when orderId changes', async () => {
     const user = userEvent.setup()
     const first = createPendingOrder()
