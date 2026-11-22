@@ -215,6 +215,16 @@ describe('OrderPanel', () => {
     expect(usePOSStore.getState().cart[0].served).toBe(true)
   })
 
+  it('disables the stepper for a served line even without served controls', () => {
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    serveCurrentLine()
+    renderPanel()
+
+    expect(screen.getByRole('button', { name: 'Tăng số lượng' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Giảm số lượng' })).toBeDisabled()
+  })
+
   it('renders both lines when an item is re-added after being served', () => {
     usePOSStore.getState().setTable('ban-5')
     usePOSStore.getState().addItem('ga-nuong')

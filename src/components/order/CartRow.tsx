@@ -74,13 +74,9 @@ export function CartRow({
         </div>
         <div className="mt-1.5 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-            {showServed ? (
-              <fieldset disabled={served} className="m-0 min-w-0 border-0 p-0">
-                {stepper}
-              </fieldset>
-            ) : (
-              stepper
-            )}
+            <fieldset disabled={served} className="m-0 min-w-0 border-0 p-0">
+              {stepper}
+            </fieldset>
             {canToggle ? (
               <Button
                 size="sm"
