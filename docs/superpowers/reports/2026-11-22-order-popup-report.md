@@ -51,7 +51,7 @@ Tất cả lệnh chạy trên working tree sau khi hoàn tất Task 9. Exit cod
 
 | Suite | Trước module (branch base `c8d00c2`) | Sau module (`a3aa983` + Task 9) | Delta |
 | --- | --- | --- | --- |
-| Root (`npm test`) | 249 test / 39 file | **316 test / 39 file** | +67 |
+| Root (`npm test`) | 249 test / 39 file | **318 test / 39 file** (sau fix final review `e4f083d`) | +69 |
 | Server unit | 64 / 11 file | 64 / 11 file | 0 |
 | Server e2e | 108 / 13 file | 108 / 13 file | 0 |
 
@@ -74,3 +74,14 @@ Root tăng 67 test nhưng số file giữ nguyên 39: `ChargeModal.test.tsx` b�
 - Badge màu kèm chữ: vàng/đỏ/xanh lá + nhãn (`OrdersPage.StatusBadge`) ✅
 - Không đổi server (unit 64, e2e 108 không đổi) ✅
 - Test assert hành vi thật (đã sửa tên test không khớp assert) ✅
+
+## Final review và fix cuối
+
+Final review ban đầu trả **Ready to merge: No** vì hai lỗi tích hợp:
+
+1. Thanh toán đơn đã "Thêm món" từ POS (chế độ tạo) gọi `completeOrder`, tạo đơn mới trong khi bản ghi chờ cũ còn lại → trùng đơn, bàn vẫn bận, có thể thu tiền hai lần.
+2. Nút "Thêm món" từ Orders không điều hướng về POS.
+
+Fix `e4f083d`: chế độ tạo khi đang soạn đơn chờ (`editingPendingOrderId`) nay upsert bằng `savePendingOrder()` rồi `payPendingOrder()` (tính lại tiền mặt theo tổng mới); Orders truyền `onAddItems={() => navigate('/pos')}`. Có test hồi quy cho cả hai. Review lại: **Ready to merge — Yes**.
+
+Minor còn lại (chấp nhận): `completeOrder` ở tầng store vẫn có thể tạo trùng nếu gọi trực tiếp lúc đang soạn — hiện `OrderModal` là caller sản xuất duy nhất nên không tới được từ UI.
