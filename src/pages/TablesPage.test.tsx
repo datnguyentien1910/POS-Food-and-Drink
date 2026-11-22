@@ -7,7 +7,7 @@ import { ToastProvider } from '../components/ui/Toast'
 import { useAuthStore } from '../store/useAuthStore'
 import { useCatalogStore } from '../store/useCatalogStore'
 import { usePOSStore } from '../store/usePOSStore'
-import type { CartLine, Discount, TableOption } from '../types'
+import type { CartLine, Discount, LocalOrder, TableOption } from '../types'
 import { TablesPage } from './TablesPage'
 
 vi.mock('../api/tables', () => ({
@@ -45,6 +45,42 @@ function snapshot(cart: CartLine[]) {
   return { cart, discount: DISCOUNT, note: '', updatedAt: Date.now() }
 }
 
+function pendingOrder(
+  id: string,
+  tableId: string | null,
+  createdAt: number,
+  items: Array<{ name: string; qty?: number; served?: boolean }> = [
+    { name: 'Gà nướng' },
+  ],
+): LocalOrder {
+  return {
+    id,
+    clientId: `client-${id}`,
+    code: `ORD-${id}`,
+    tableId,
+    tableName: tableId === null ? 'Mang đi' : `Bàn ${tableId}`,
+    items: items.map((item) => ({
+      menuItemId: 'ga-nuong',
+      name: item.name,
+      unitPrice: 100000,
+      qty: item.qty ?? 1,
+      served: item.served ?? false,
+    })),
+    subtotal: 0,
+    discountAmount: 0,
+    tax: 0,
+    total: 0,
+    method: 'cash',
+    note: '',
+    createdAt,
+    cashier: 'Thu ngân',
+    status: 'pending_payment',
+    syncState: 'synced',
+    provisionalCode: false,
+    cashierId: 'u1',
+  }
+}
+
 /** Reset catalog + POS (including openOrders) and sign in as a manager. */
 function resetStores() {
   useCatalogStore.setState({
@@ -64,6 +100,7 @@ function resetStores() {
     drafts: [],
     history: [],
     queue: [],
+    editingPendingOrderId: null,
     storageError: false,
   })
   useAuthStore.setState({
@@ -219,5 +256,133 @@ describe('TablesPage', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Thêm bàn' })
     expect(within(dialog).getByLabelText('Tên bàn')).toBeInTheDocument()
+  })
+
+  it('derives the serving label and item count from a pending order', () => {
+    useCatalogStore.setState({ tables: [table()] })
+    usePOSStore.setState({
+      history: [
+        pendingOrder('o-1', 'ban-1', 100, [
+          { name: 'Gà nướng', qty: 2 },
+          { name: 'Bò nướng', qty: 1, served: true },
+        ]),
+      ],
+    })
+
+    const { container } = renderPage()
+
+    expect(screen.getByText('Chưa phục vụ')).toHaveClass('bg-gold-soft')
+    expect(screen.getByText('3 món')).toBeInTheDocument()
+    expect(container.querySelector('[data-state="pending"]')).toBeInTheDocument()
+  })
+
+  it('opens the shared order modal for a pending table without resuming it', async () => {
+    useCatalogStore.setState({ tables: [table()] })
+    usePOSStore.setState({
+      history: [pendingOrder('o-1', 'ban-1', 100, [{ name: 'Bún chả' }])],
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(screen.getByRole('button', { name: 'Bàn 1 — Chưa phục vụ' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Chi tiết đơn chờ' })
+    expect(dialog).toHaveTextContent('Bún chả')
+    expect(screen.queryByText('POS probe')).not.toBeInTheDocument()
+    expect(usePOSStore.getState().tableId).toBeNull()
+    expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().editingPendingOrderId).toBeNull()
+  })
+
+  it('opens the newest pending order for that table', async () => {
+    useCatalogStore.setState({ tables: [table()] })
+    usePOSStore.setState({
+      history: [
+        pendingOrder('new', 'ban-1', 300, [{ name: 'Bò nướng' }]),
+        pendingOrder('old', 'ban-1', 100, [{ name: 'Gà nướng' }]),
+      ],
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(screen.getByRole('button', { name: 'Bàn 1 — Chưa phục vụ' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Chi tiết đơn chờ' })
+    expect(dialog).toHaveTextContent('Bò nướng')
+    expect(dialog).not.toHaveTextContent('Gà nướng')
+  })
+
+  it('returns to POS with the items when adding to a pending order', async () => {
+    useCatalogStore.setState({ tables: [table()] })
+    usePOSStore.setState({
+      history: [pendingOrder('o-1', 'ban-1', 100, [{ name: 'Bún chả', qty: 2 }])],
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(screen.getByRole('button', { name: 'Bàn 1 — Chưa phục vụ' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Chi tiết đơn chờ' })
+    await user.click(within(dialog).getByRole('button', { name: 'Thêm món' }))
+
+    expect(await screen.findByText('POS probe')).toBeInTheDocument()
+    expect(usePOSStore.getState().editingPendingOrderId).toBe('o-1')
+    expect(usePOSStore.getState().cart).toEqual([
+      expect.objectContaining({ name: 'Bún chả', qty: 2 }),
+    ])
+  })
+
+  it('keeps the existing switch flow for a table with a suspended cart', async () => {
+    useCatalogStore.setState({
+      tables: [table({ id: 'ban-1' }), table({ id: 'ban-2', name: 'Bàn 2' })],
+    })
+    usePOSStore.setState({
+      tableId: 'ban-1',
+      cart: [line('active', 1)],
+      openOrders: { 'ban-2': snapshot([line('suspended', 2)]) },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(screen.getByRole('button', { name: 'Bàn 2 — Chưa phục vụ' }))
+
+    expect(await screen.findByText('POS probe')).toBeInTheDocument()
+    expect(usePOSStore.getState().tableId).toBe('ban-2')
+    expect(usePOSStore.getState().cart).toEqual([line('suspended', 2)])
+    expect(usePOSStore.getState().openOrders['ban-1'].cart).toEqual([
+      line('active', 1),
+    ])
+  })
+
+  it('assigns an empty table without stashing the cart', async () => {
+    useCatalogStore.setState({
+      tables: [table({ id: 'ban-1' }), table({ id: 'ban-2', name: 'Bàn 2' })],
+    })
+    usePOSStore.setState({ tableId: 'ban-2', cart: [line('l1', 2)] })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(screen.getByRole('button', { name: 'Bàn 1 — Trống' }))
+
+    expect(await screen.findByText('POS probe')).toBeInTheDocument()
+    expect(usePOSStore.getState().tableId).toBe('ban-1')
+    expect(usePOSStore.getState().cart).toEqual([line('l1', 2)])
+    expect(usePOSStore.getState().openOrders).toEqual({})
+  })
+
+  it('treats the pending order being edited as an empty table', async () => {
+    useCatalogStore.setState({ tables: [table()] })
+    usePOSStore.setState({
+      history: [pendingOrder('o-1', 'ban-1', 100)],
+      editingPendingOrderId: 'o-1',
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    expect(screen.getByText('Trống')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Bàn 1 — Trống' }))
+
+    expect(await screen.findByText('POS probe')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Chi tiết đơn chờ' })).not.toBeInTheDocument()
+    expect(usePOSStore.getState().tableId).toBe('ban-1')
   })
 })

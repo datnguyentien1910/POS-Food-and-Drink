@@ -75,6 +75,11 @@ function OrdersRoute() {
   return <OrdersPage onOpenReceipt={onOpenReceipt} />
 }
 
+function TablesRoute() {
+  const { onOpenReceipt } = useOutletContext<LayoutContext>()
+  return <TablesPage onOpenReceipt={onOpenReceipt} />
+}
+
 function PlaceholderRoute() {
   const { pageId } = useParams()
   const navigate = useNavigate()
@@ -92,7 +97,7 @@ export const router = createHashRouter([
       { path: 'pos', element: <POSRoute /> },
       { path: 'orders', element: <OrdersRoute /> },
       { path: 'menu', element: <MenuPage /> },
-      { path: 'tables', element: <TablesPage /> },
+      { path: 'tables', element: <TablesRoute /> },
       { path: ':pageId', element: <PlaceholderRoute /> },
       { path: '*', element: <Navigate to="/pos" replace /> },
     ],
