@@ -73,6 +73,13 @@ interface POSState extends PersistedPOS {
   resumePendingOrder: (orderId: string) => void
   payPendingOrder: (orderId: string, input: CompleteOrderInput) => LocalOrder | null
   cancelPendingOrder: (orderId: string) => void
+  setPendingOrderTable: (orderId: string, tableId: string | null) => void
+  setPendingLineServed: (
+    orderId: string,
+    lineId: string,
+    served: boolean,
+  ) => void
+  setAllPendingServed: (orderId: string) => void
   setLineServed: (lineId: string, served: boolean) => void
   setAllServed: () => void
   isTableBusy: (tableId: string) => boolean
@@ -768,6 +775,52 @@ export const usePOSStore = create<POSState>()(
               : prev.editingPendingOrderId,
         }))
       },
+
+      // Popup edits patch the history row in place: pending mode never resumes
+      // the order, so the active cart and open snapshots must stay untouched.
+      setPendingOrderTable: (orderId, tableId) =>
+        set((state) => ({
+          history: state.history.map((order) =>
+            order.id === orderId && order.status === 'pending_payment'
+              ? {
+                  ...order,
+                  tableId,
+                  tableName: resolveTableName(tableId),
+                  updatedAt: Date.now(),
+                }
+              : order,
+          ),
+        })),
+
+      setPendingLineServed: (orderId, lineId, served) =>
+        set((state) => ({
+          history: state.history.map((order) =>
+            order.id === orderId && order.status === 'pending_payment'
+              ? {
+                  ...order,
+                  // Pending lines are addressed as `${order.id}:${index}` by
+                  // the modal; only `served` changes, never qty or prices.
+                  items: order.items.map((line, index) =>
+                    `${order.id}:${index}` === lineId
+                      ? { ...line, served }
+                      : line,
+                  ),
+                }
+              : order,
+          ),
+        })),
+
+      setAllPendingServed: (orderId) =>
+        set((state) => ({
+          history: state.history.map((order) =>
+            order.id === orderId && order.status === 'pending_payment'
+              ? {
+                  ...order,
+                  items: order.items.map((line) => ({ ...line, served: true })),
+                }
+              : order,
+          ),
+        })),
 
       setLineServed: (lineId, served) =>
         set((state) => ({

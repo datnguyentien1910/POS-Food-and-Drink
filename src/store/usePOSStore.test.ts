@@ -1304,4 +1304,132 @@ describe('pending orders', () => {
       pending.clientId,
     )
   })
+
+  describe('patching pending orders without resuming', () => {
+    const seedTwoLinePending = () => {
+      usePOSStore.getState().assignTable('ban-5')
+      usePOSStore.getState().addItem(chicken.id)
+      usePOSStore.getState().addItem(coffee.id)
+      usePOSStore.getState().setNote('Ít đá')
+      return usePOSStore.getState().savePendingOrder()!
+    }
+
+    const lineBasics = (items: LocalOrder['items']) =>
+      items.map(({ menuItemId, name, unitPrice, qty }) => ({
+        menuItemId,
+        name,
+        unitPrice,
+        qty,
+      }))
+
+    it('changes the table of a pending row but keeps items, totals and clientId', () => {
+      const order = seedTwoLinePending()
+      const before = usePOSStore.getState().history[0]
+      const cart = [
+        {
+          lineId: 'active-1',
+          menuItemId: coffee.id,
+          qty: 2,
+          unitPrice: coffee.price,
+          name: coffee.name,
+          served: false,
+        },
+      ]
+      const openOrders = {
+        'ban-5': {
+          cart,
+          discount: { type: 'amount' as const, value: 0 },
+          note: 'Giỏ khác',
+          updatedAt: 1,
+        },
+      }
+      usePOSStore.setState({
+        cart: cart.map((line) => ({ ...line })),
+        openOrders,
+        editingPendingOrderId: 'editing-someone-else',
+        queue: [],
+      })
+
+      usePOSStore.getState().setPendingOrderTable(order.id, 'ban-2')
+
+      const state = usePOSStore.getState()
+      expect(state.history).toHaveLength(1)
+      expect(state.history[0]).toMatchObject({
+        id: order.id,
+        clientId: order.clientId,
+        code: order.code,
+        status: 'pending_payment',
+        tableId: 'ban-2',
+        tableName: 'Bàn 02',
+        items: before.items,
+        note: before.note,
+        subtotal: before.subtotal,
+        discountAmount: before.discountAmount,
+        tax: before.tax,
+        total: before.total,
+      })
+      expect(state.history[0].updatedAt).toBeGreaterThanOrEqual(
+        before.updatedAt ?? 0,
+      )
+      expect(state.cart).toEqual(cart)
+      expect(state.openOrders).toEqual(openOrders)
+      expect(state.editingPendingOrderId).toBe('editing-someone-else')
+      expect(state.queue).toEqual([])
+
+      usePOSStore.getState().setPendingOrderTable(order.id, null)
+      expect(usePOSStore.getState().history[0]).toMatchObject({
+        tableId: null,
+        tableName: 'Mang đi',
+      })
+    })
+
+    it('toggles served on one pending line without touching qty or prices', () => {
+      const order = seedTwoLinePending()
+      const before = usePOSStore.getState().history[0]
+
+      usePOSStore
+        .getState()
+        .setPendingLineServed(order.id, `${order.id}:0`, true)
+
+      const updated = usePOSStore.getState().history[0]
+      expect(updated.items.map((line) => line.served)).toEqual([true, false])
+      expect(lineBasics(updated.items)).toEqual(lineBasics(before.items))
+      expect(updated.clientId).toBe(order.clientId)
+      expect(updated.total).toBe(before.total)
+      expect(usePOSStore.getState().cart).toEqual([])
+    })
+
+    it('marks every pending line as served', () => {
+      const order = seedTwoLinePending()
+      const before = usePOSStore.getState().history[0]
+
+      usePOSStore.getState().setAllPendingServed(order.id)
+
+      const updated = usePOSStore.getState().history[0]
+      expect(updated.items.map((line) => line.served)).toEqual([true, true])
+      expect(lineBasics(updated.items)).toEqual(lineBasics(before.items))
+      expect(updated.clientId).toBe(order.clientId)
+      expect(updated.total).toBe(before.total)
+    })
+
+    it('leaves a completed order untouched', () => {
+      usePOSStore.getState().addItem(chicken.id)
+      const completed = usePOSStore
+        .getState()
+        .completeOrder({ method: 'cash' })!
+      const before = usePOSStore.getState().history[0]
+      const queueBefore = usePOSStore.getState().queue
+
+      usePOSStore.getState().setPendingOrderTable(completed.id, 'ban-2')
+      usePOSStore
+        .getState()
+        .setPendingLineServed(completed.id, `${completed.id}:0`, true)
+      usePOSStore.getState().setAllPendingServed(completed.id)
+
+      const state = usePOSStore.getState()
+      expect(state.history).toHaveLength(1)
+      expect(state.history[0]).toEqual(before)
+      expect(state.queue).toEqual(queueBefore)
+    })
+  })
 })
