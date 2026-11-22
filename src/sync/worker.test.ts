@@ -109,6 +109,7 @@ function seed(item: SyncItem, order: LocalOrder = makeOrder()) {
     note: '',
     history: [order],
     queue: [item],
+    openOrders: {},
   })
 }
 

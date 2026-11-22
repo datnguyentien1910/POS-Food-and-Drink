@@ -28,6 +28,7 @@ const resetStore = () => {
     drafts: [],
     history: [],
     queue: [],
+    openOrders: {},
   })
 }
 
@@ -149,8 +150,8 @@ describe('OrderPanel', () => {
 
   it('asks before clearing the order and keeps it when cancelled', async () => {
     const user = userEvent.setup()
-    usePOSStore.getState().addItem('ga-nuong')
     usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
     renderPanel()
 
     await user.click(screen.getByRole('button', { name: 'Tùy chọn đơn' }))
@@ -165,8 +166,8 @@ describe('OrderPanel', () => {
 
   it('resets cart, table, discount and note when clearing is confirmed', async () => {
     const user = userEvent.setup()
-    usePOSStore.getState().addItem('ga-nuong')
     usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
     usePOSStore.getState().setDiscount({ type: 'percent', value: 10 })
     usePOSStore.getState().setNote('Ít đá')
     renderPanel()

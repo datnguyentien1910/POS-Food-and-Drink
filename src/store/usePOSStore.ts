@@ -4,6 +4,7 @@ import { RESTAURANT } from '../config'
 import { resolveMenuItem, resolveTable, resolveTableName } from '../lib/catalog-lookup'
 import { calcTotals } from '../lib/calc'
 import { makeId, makeLineId } from '../lib/id'
+import { orderKey } from '../lib/table-state'
 import { nextDelay } from '../sync/backoff'
 import { useAuthStore } from './useAuthStore'
 import type {
@@ -62,6 +63,10 @@ interface POSState extends PersistedPOS {
   removeItem: (lineId: string) => void
   resetOrder: () => void
   setTable: (tableId: string | null) => void
+  switchTable: (tableId: string | null) => void
+  setLineServed: (lineId: string, served: boolean) => void
+  setAllServed: () => void
+  isTableBusy: (tableId: string) => boolean
   setDiscount: (discount: Discount) => void
   setNote: (note: string) => void
   saveDraft: () => void
@@ -90,6 +95,40 @@ const emptyOrder = (): Omit<
   discount: { ...EMPTY_DISCOUNT },
   note: '',
 })
+
+/** Saves the active order under its table key, or drops an empty snapshot. */
+function stashSnapshot(
+  openOrders: Record<string, OpenOrderSnapshot>,
+  tableId: string | null,
+  cart: CartLine[],
+  discount: Discount,
+  note: string,
+): Record<string, OpenOrderSnapshot> {
+  const key = orderKey(tableId)
+  if (cart.length === 0) {
+    const next = { ...openOrders }
+    delete next[key]
+    return next
+  }
+  return {
+    ...openOrders,
+    [key]: {
+      cart: cart.map((line) => ({ ...line })),
+      discount: { ...discount },
+      note,
+      updatedAt: Date.now(),
+    },
+  }
+}
+
+function withoutSnapshot(
+  openOrders: Record<string, OpenOrderSnapshot>,
+  tableId: string | null,
+): Record<string, OpenOrderSnapshot> {
+  const next = { ...openOrders }
+  delete next[orderKey(tableId)]
+  return next
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -347,7 +386,7 @@ export const usePOSStore = create<POSState>()(
 
         set((state) => {
           const existing = state.cart.find(
-            (line) => line.menuItemId === menuItemId,
+            (line) => line.menuItemId === menuItemId && line.served !== true,
           )
 
           if (existing) {
@@ -369,6 +408,7 @@ export const usePOSStore = create<POSState>()(
                 qty: 1,
                 unitPrice: item.price,
                 name: item.name,
+                served: false,
               },
             ],
           }
@@ -378,7 +418,9 @@ export const usePOSStore = create<POSState>()(
       increment: (lineId) => {
         set((state) => ({
           cart: state.cart.map((line) =>
-            line.lineId === lineId ? { ...line, qty: line.qty + 1 } : line,
+            line.lineId === lineId && line.served !== true
+              ? { ...line, qty: line.qty + 1 }
+              : line,
           ),
         }))
       },
@@ -386,7 +428,7 @@ export const usePOSStore = create<POSState>()(
       decrement: (lineId) => {
         set((state) => ({
           cart: state.cart.flatMap((line) => {
-            if (line.lineId !== lineId) return [line]
+            if (line.lineId !== lineId || line.served === true) return [line]
             if (line.qty <= 1) return []
             return [{ ...line, qty: line.qty - 1 }]
           }),
@@ -395,14 +437,75 @@ export const usePOSStore = create<POSState>()(
 
       removeItem: (lineId) => {
         set((state) => ({
-          cart: state.cart.filter((line) => line.lineId !== lineId),
+          cart: state.cart.filter(
+            (line) => line.lineId !== lineId || line.served === true,
+          ),
         }))
       },
 
       resetOrder: () =>
-        set({ cart: [], tableId: null, discount: { ...EMPTY_DISCOUNT }, note: '' }),
+        set((state) => ({
+          ...emptyOrder(),
+          openOrders: withoutSnapshot(state.openOrders, state.tableId),
+        })),
 
-      setTable: (tableId) => set({ tableId }),
+      setTable: (tableId) => get().switchTable(tableId),
+
+      switchTable: (next) => {
+        const state = get()
+        const currentKey = orderKey(state.tableId)
+        const nextKey = orderKey(next)
+
+        if (currentKey === nextKey) {
+          set({ tableId: next })
+          return
+        }
+
+        const stashed = stashSnapshot(
+          state.openOrders,
+          state.tableId,
+          state.cart,
+          state.discount,
+          state.note,
+        )
+        const resumed = stashed[nextKey]
+
+        if (resumed) {
+          set({
+            tableId: next,
+            cart: resumed.cart.map((line) => ({ ...line })),
+            discount: { ...resumed.discount },
+            note: resumed.note,
+            openOrders: withoutSnapshot(stashed, next),
+          })
+          return
+        }
+
+        set({
+          ...emptyOrder(),
+          tableId: next,
+          openOrders: stashed,
+        })
+      },
+
+      setLineServed: (lineId, served) =>
+        set((state) => ({
+          cart: state.cart.map((line) =>
+            line.lineId === lineId ? { ...line, served } : line,
+          ),
+        })),
+
+      setAllServed: () =>
+        set((state) => ({
+          cart: state.cart.map((line) => ({ ...line, served: true })),
+        })),
+
+      isTableBusy: (tableId) => {
+        const state = get()
+        const active = state.tableId === tableId && state.cart.length > 0
+        const snapshot = state.openOrders[orderKey(tableId)]
+        return active || (snapshot !== undefined && snapshot.cart.length > 0)
+      },
 
       setDiscount: (discount) => set({ discount }),
 
@@ -424,6 +527,7 @@ export const usePOSStore = create<POSState>()(
         set({
           drafts: [draft, ...state.drafts],
           ...emptyOrder(),
+          openOrders: withoutSnapshot(state.openOrders, state.tableId),
         })
       },
 
@@ -432,12 +536,25 @@ export const usePOSStore = create<POSState>()(
         const draft = state.drafts.find((item) => item.id === draftId)
         if (!draft) return
 
+        let openOrders = state.openOrders
+        if (draft.tableId !== state.tableId && state.cart.length > 0) {
+          openOrders = stashSnapshot(
+            openOrders,
+            state.tableId,
+            state.cart,
+            state.discount,
+            state.note,
+          )
+        }
+        openOrders = withoutSnapshot(openOrders, draft.tableId)
+
         set({
           cart: draft.items.map((line) => ({ ...line })),
           tableId: draft.tableId,
           discount: { ...draft.discount },
           note: draft.note,
           drafts: state.drafts.filter((item) => item.id !== draftId),
+          openOrders,
         })
       },
 
@@ -535,6 +652,7 @@ export const usePOSStore = create<POSState>()(
           history: pruneHistory([order, ...state.history]),
           queue: [...state.queue, syncItem],
           ...emptyOrder(),
+          openOrders: withoutSnapshot(state.openOrders, state.tableId),
         })
 
         triggerSync()

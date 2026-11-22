@@ -32,6 +32,7 @@ const resetStore = () => {
     drafts: [],
     history: [],
     queue: [],
+    openOrders: {},
   })
 }
 

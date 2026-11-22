@@ -27,14 +27,15 @@ const resetStore = () => {
     drafts: [],
     history: [],
     queue: [],
+    openOrders: {},
   })
 }
 
 const seedDraft = () => {
+  usePOSStore.getState().setTable('ban-5')
   usePOSStore.getState().addItem('ga-nuong')
   usePOSStore.getState().addItem('ca-phe-nong')
   usePOSStore.getState().addItem('ca-phe-nong')
-  usePOSStore.getState().setTable('ban-5')
   usePOSStore.getState().setNote('Không hành')
   usePOSStore.getState().saveDraft()
 }

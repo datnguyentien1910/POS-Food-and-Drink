@@ -62,8 +62,8 @@ describe('hash router', () => {
 
   it('giữ nguyên đơn đang làm khi rời trang rồi quay lại', async () => {
     meMock.mockResolvedValue(session())
-    usePOSStore.getState().addItem('ga-nuong')
     usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
     usePOSStore.getState().setNote('Ít đá')
 
     const user = userEvent.setup()
