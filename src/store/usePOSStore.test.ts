@@ -1281,4 +1281,27 @@ describe('pending orders', () => {
     expect(state.cart.map((line) => line.menuItemId)).toEqual([coffee.id])
     expect(state.tableId).toBe('ban-1')
   })
+
+  it('clears the editing pointer when checking out a resumed order', () => {
+    const pending = saveChickenOnBan5()
+    usePOSStore.getState().resumePendingOrder(pending.id)
+    expect(usePOSStore.getState().editingPendingOrderId).toBe(pending.id)
+
+    const checkedOut = usePOSStore.getState().completeOrder({ method: 'cash' })!
+    expect(checkedOut.status).toBe('completed')
+    expect(usePOSStore.getState().editingPendingOrderId).toBeNull()
+
+    usePOSStore.getState().addItem(chicken.id)
+    const next = usePOSStore.getState().savePendingOrder()!
+
+    const state = usePOSStore.getState()
+    expect(next.clientId).not.toBe(pending.clientId)
+    expect(next.clientId).not.toBe(checkedOut.clientId)
+    expect(
+      state.history.filter((order) => order.status === 'pending_payment'),
+    ).toHaveLength(2)
+    expect(state.history.map((order) => order.clientId)).toContain(
+      pending.clientId,
+    )
+  })
 })

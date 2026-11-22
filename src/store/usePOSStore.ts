@@ -917,6 +917,9 @@ export const usePOSStore = create<POSState>()(
           queue: [...state.queue, syncItem],
           ...emptyOrder(),
           openOrders: withoutSnapshot(state.openOrders, state.tableId),
+          // A checkout finishes any pending order being edited, even when it
+          // happens from create mode rather than payPendingOrder.
+          editingPendingOrderId: null,
         })
 
         triggerSync()
