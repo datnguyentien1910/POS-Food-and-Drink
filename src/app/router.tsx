@@ -9,6 +9,7 @@ import { MenuPage } from '../pages/MenuPage'
 import { OrdersPage } from '../pages/OrdersPage'
 import { PlaceholderPage } from '../pages/PlaceholderPage'
 import { POSPage } from '../pages/POSPage'
+import { TablesPage } from '../pages/TablesPage'
 import type { OrderRecord } from '../types'
 
 export function pageFromPath(pathname: string): PageId {
@@ -91,6 +92,7 @@ export const router = createHashRouter([
       { path: 'pos', element: <POSRoute /> },
       { path: 'orders', element: <OrdersRoute /> },
       { path: 'menu', element: <MenuPage /> },
+      { path: 'tables', element: <TablesPage /> },
       { path: ':pageId', element: <PlaceholderRoute /> },
       { path: '*', element: <Navigate to="/pos" replace /> },
     ],

@@ -78,6 +78,14 @@ describe('hash router', () => {
     expect(usePOSStore.getState().note).toBe('Ít đá')
   })
 
+  it('renders the real tables page at #/tables', async () => {
+    meMock.mockResolvedValue(session())
+    window.location.hash = '#/tables'
+    render(<App />)
+    await screen.findByText('Theo dõi trạng thái phục vụ và mở bàn để gọi món.')
+    expect(screen.queryByText('Đang hoàn thiện')).not.toBeInTheDocument()
+  })
+
   it('giữ deep-link #/menu qua màn đăng nhập', async () => {
     meMock.mockRejectedValue(new Error('401'))
     vi.mocked(authApi.staff).mockResolvedValue([{ id: 'u1', name: 'Ngọc Anh', role: 'MANAGER' }])
