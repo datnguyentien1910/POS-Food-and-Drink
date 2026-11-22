@@ -4,6 +4,7 @@ import { RESTAURANT } from '../config'
 import { resolveMenuItem, resolveTable, resolveTableName } from '../lib/catalog-lookup'
 import { calcTotals } from '../lib/calc'
 import { makeId, makeLineId } from '../lib/id'
+import { orderKey } from '../lib/table-state'
 import { nextDelay } from '../sync/backoff'
 import { useAuthStore } from './useAuthStore'
 import type {
@@ -12,6 +13,7 @@ import type {
   Discount,
   Draft,
   LocalOrder,
+  OpenOrderSnapshot,
   OrderLineSnapshot,
   OrderRecord,
   PaymentMethod,
@@ -37,9 +39,12 @@ interface PersistedPOS {
   drafts: Draft[]
   history: LocalOrder[]
   queue: SyncItem[]
+  openOrders: Record<string, OpenOrderSnapshot>
 }
 
-type PersistedPOSv1 = Omit<PersistedPOS, 'history' | 'queue'> & {
+type PersistedPOSv2 = Omit<PersistedPOS, 'openOrders'>
+
+type PersistedPOSv1 = Omit<PersistedPOS, 'history' | 'queue' | 'openOrders'> & {
   history: OrderRecord[]
 }
 
@@ -56,8 +61,12 @@ interface POSState extends PersistedPOS {
   increment: (lineId: string) => void
   decrement: (lineId: string) => void
   removeItem: (lineId: string) => void
-  clearCart: () => void
+  resetOrder: () => void
   setTable: (tableId: string | null) => void
+  switchTable: (tableId: string | null) => void
+  setLineServed: (lineId: string, served: boolean) => void
+  setAllServed: () => void
+  isTableBusy: (tableId: string) => boolean
   setDiscount: (discount: Discount) => void
   setNote: (note: string) => void
   saveDraft: () => void
@@ -77,12 +86,49 @@ interface POSState extends PersistedPOS {
   voidLocalOrder: (clientId: string, reason: string) => void
 }
 
-const emptyOrder = (): Omit<PersistedPOS, 'drafts' | 'history' | 'queue'> => ({
+const emptyOrder = (): Omit<
+  PersistedPOS,
+  'drafts' | 'history' | 'queue' | 'openOrders'
+> => ({
   cart: [],
   tableId: null,
   discount: { ...EMPTY_DISCOUNT },
   note: '',
 })
+
+/** Saves the active order under its table key, or drops an empty snapshot. */
+function stashSnapshot(
+  openOrders: Record<string, OpenOrderSnapshot>,
+  tableId: string | null,
+  cart: CartLine[],
+  discount: Discount,
+  note: string,
+): Record<string, OpenOrderSnapshot> {
+  const key = orderKey(tableId)
+  if (cart.length === 0) {
+    const next = { ...openOrders }
+    delete next[key]
+    return next
+  }
+  return {
+    ...openOrders,
+    [key]: {
+      cart: cart.map((line) => ({ ...line })),
+      discount: { ...discount },
+      note,
+      updatedAt: Date.now(),
+    },
+  }
+}
+
+function withoutSnapshot(
+  openOrders: Record<string, OpenOrderSnapshot>,
+  tableId: string | null,
+): Record<string, OpenOrderSnapshot> {
+  const next = { ...openOrders }
+  delete next[orderKey(tableId)]
+  return next
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -97,7 +143,8 @@ const isCartLine = (value: unknown): value is CartLine =>
   isFiniteNumber(value.qty) &&
   value.qty > 0 &&
   (value.unitPrice === undefined || isFiniteNumber(value.unitPrice)) &&
-  (value.name === undefined || typeof value.name === 'string')
+  (value.name === undefined || typeof value.name === 'string') &&
+  (value.served === undefined || typeof value.served === 'boolean')
 
 const isDiscount = (value: unknown): value is Discount =>
   isRecord(value) &&
@@ -114,6 +161,21 @@ const isDraft = (value: unknown): value is Draft =>
   isDiscount(value.discount) &&
   typeof value.note === 'string' &&
   isFiniteNumber(value.createdAt)
+
+const isOpenOrderSnapshot = (value: unknown): value is OpenOrderSnapshot =>
+  isRecord(value) &&
+  Array.isArray(value.cart) &&
+  value.cart.every(isCartLine) &&
+  isDiscount(value.discount) &&
+  typeof value.note === 'string' &&
+  isFiniteNumber(value.updatedAt)
+
+const isOpenOrders = (
+  value: unknown,
+): value is Record<string, OpenOrderSnapshot> =>
+  isRecord(value) &&
+  !Array.isArray(value) &&
+  Object.values(value).every(isOpenOrderSnapshot)
 
 const isOrderLine = (value: unknown): value is OrderLineSnapshot =>
   isRecord(value) &&
@@ -155,7 +217,7 @@ const isQueueItem = (value: unknown): value is SyncItem =>
   isFiniteNumber(value.nextAttemptAt) &&
   isFiniteNumber(value.createdAt)
 
-const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+const isPersistedPOSv2 = (value: unknown): value is PersistedPOSv2 =>
   isRecord(value) &&
   Array.isArray(value.cart) &&
   value.cart.every(isCartLine) &&
@@ -168,6 +230,12 @@ const isPersistedPOS = (value: unknown): value is PersistedPOS =>
   value.history.every(isOrder) &&
   Array.isArray(value.queue) &&
   value.queue.every(isQueueItem)
+
+const hasValidOpenOrders = (value: unknown): boolean =>
+  isRecord(value) && isOpenOrders(value.openOrders)
+
+const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+  isPersistedPOSv2(value) && hasValidOpenOrders(value)
 
 /** Upgrades a v1 snapshot: old orders become read-only `legacy` rows. */
 function migrateV1(from: PersistedPOSv1): PersistedPOS {
@@ -199,6 +267,7 @@ function migrateV1(from: PersistedPOSv1): PersistedPOS {
     drafts: from.drafts,
     history,
     queue: [],
+    openOrders: {},
   }
 }
 
@@ -213,8 +282,15 @@ const safeStorage: PersistStorage<PersistedPOS> = {
       const parsed = JSON.parse(raw) as unknown
       if (!isRecord(parsed) || !isRecord(parsed.state)) return null
 
-      if (parsed.version === 2 && isPersistedPOS(parsed.state)) {
-        return { state: parsed.state, version: 2 }
+      if (parsed.version === 3 && isPersistedPOS(parsed.state)) {
+        return { state: parsed.state, version: 3 }
+      }
+
+      if (parsed.version === 2 && isPersistedPOSv2(parsed.state)) {
+        return {
+          state: { ...parsed.state, openOrders: {} },
+          version: 3,
+        }
       }
 
       if (parsed.version === 1 && isRecord(parsed.state)) {
@@ -232,7 +308,7 @@ const safeStorage: PersistStorage<PersistedPOS> = {
         ) {
           return {
             state: migrateV1(legacy as unknown as PersistedPOSv1),
-            version: 2,
+            version: 3,
           }
         }
       }
@@ -301,6 +377,7 @@ export const usePOSStore = create<POSState>()(
       drafts: [],
       history: [],
       queue: [],
+      openOrders: {},
       storageError: false,
 
       addItem: (menuItemId) => {
@@ -309,7 +386,7 @@ export const usePOSStore = create<POSState>()(
 
         set((state) => {
           const existing = state.cart.find(
-            (line) => line.menuItemId === menuItemId,
+            (line) => line.menuItemId === menuItemId && line.served !== true,
           )
 
           if (existing) {
@@ -331,6 +408,7 @@ export const usePOSStore = create<POSState>()(
                 qty: 1,
                 unitPrice: item.price,
                 name: item.name,
+                served: false,
               },
             ],
           }
@@ -340,7 +418,9 @@ export const usePOSStore = create<POSState>()(
       increment: (lineId) => {
         set((state) => ({
           cart: state.cart.map((line) =>
-            line.lineId === lineId ? { ...line, qty: line.qty + 1 } : line,
+            line.lineId === lineId && line.served !== true
+              ? { ...line, qty: line.qty + 1 }
+              : line,
           ),
         }))
       },
@@ -348,7 +428,7 @@ export const usePOSStore = create<POSState>()(
       decrement: (lineId) => {
         set((state) => ({
           cart: state.cart.flatMap((line) => {
-            if (line.lineId !== lineId) return [line]
+            if (line.lineId !== lineId || line.served === true) return [line]
             if (line.qty <= 1) return []
             return [{ ...line, qty: line.qty - 1 }]
           }),
@@ -357,13 +437,75 @@ export const usePOSStore = create<POSState>()(
 
       removeItem: (lineId) => {
         set((state) => ({
-          cart: state.cart.filter((line) => line.lineId !== lineId),
+          cart: state.cart.filter(
+            (line) => line.lineId !== lineId || line.served === true,
+          ),
         }))
       },
 
-      clearCart: () => set({ cart: [] }),
+      resetOrder: () =>
+        set((state) => ({
+          ...emptyOrder(),
+          openOrders: withoutSnapshot(state.openOrders, state.tableId),
+        })),
 
-      setTable: (tableId) => set({ tableId }),
+      setTable: (tableId) => get().switchTable(tableId),
+
+      switchTable: (next) => {
+        const state = get()
+        const currentKey = orderKey(state.tableId)
+        const nextKey = orderKey(next)
+
+        if (currentKey === nextKey) {
+          set({ tableId: next })
+          return
+        }
+
+        const stashed = stashSnapshot(
+          state.openOrders,
+          state.tableId,
+          state.cart,
+          state.discount,
+          state.note,
+        )
+        const resumed = stashed[nextKey]
+
+        if (resumed) {
+          set({
+            tableId: next,
+            cart: resumed.cart.map((line) => ({ ...line })),
+            discount: { ...resumed.discount },
+            note: resumed.note,
+            openOrders: withoutSnapshot(stashed, next),
+          })
+          return
+        }
+
+        set({
+          ...emptyOrder(),
+          tableId: next,
+          openOrders: stashed,
+        })
+      },
+
+      setLineServed: (lineId, served) =>
+        set((state) => ({
+          cart: state.cart.map((line) =>
+            line.lineId === lineId ? { ...line, served } : line,
+          ),
+        })),
+
+      setAllServed: () =>
+        set((state) => ({
+          cart: state.cart.map((line) => ({ ...line, served: true })),
+        })),
+
+      isTableBusy: (tableId) => {
+        const state = get()
+        const active = state.tableId === tableId && state.cart.length > 0
+        const snapshot = state.openOrders[orderKey(tableId)]
+        return active || (snapshot !== undefined && snapshot.cart.length > 0)
+      },
 
       setDiscount: (discount) => set({ discount }),
 
@@ -385,6 +527,7 @@ export const usePOSStore = create<POSState>()(
         set({
           drafts: [draft, ...state.drafts],
           ...emptyOrder(),
+          openOrders: withoutSnapshot(state.openOrders, state.tableId),
         })
       },
 
@@ -393,12 +536,25 @@ export const usePOSStore = create<POSState>()(
         const draft = state.drafts.find((item) => item.id === draftId)
         if (!draft) return
 
+        let openOrders = state.openOrders
+        if (draft.tableId !== state.tableId && state.cart.length > 0) {
+          openOrders = stashSnapshot(
+            openOrders,
+            state.tableId,
+            state.cart,
+            state.discount,
+            state.note,
+          )
+        }
+        openOrders = withoutSnapshot(openOrders, draft.tableId)
+
         set({
           cart: draft.items.map((line) => ({ ...line })),
           tableId: draft.tableId,
           discount: { ...draft.discount },
           note: draft.note,
           drafts: state.drafts.filter((item) => item.id !== draftId),
+          openOrders,
         })
       },
 
@@ -496,6 +652,7 @@ export const usePOSStore = create<POSState>()(
           history: pruneHistory([order, ...state.history]),
           queue: [...state.queue, syncItem],
           ...emptyOrder(),
+          openOrders: withoutSnapshot(state.openOrders, state.tableId),
         })
 
         triggerSync()
@@ -666,7 +823,7 @@ export const usePOSStore = create<POSState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 2,
+      version: 3,
       storage: safeStorage,
       partialize: (state): PersistedPOS => ({
         cart: state.cart,
@@ -676,6 +833,7 @@ export const usePOSStore = create<POSState>()(
         drafts: state.drafts,
         history: state.history,
         queue: state.queue,
+        openOrders: state.openOrders,
       }),
     },
   ),

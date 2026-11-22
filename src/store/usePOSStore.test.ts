@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TABLES } from '../data/catalog-seed'
 import { MENU_ITEMS } from '../data/menu'
+import { useCatalogStore } from './useCatalogStore'
 import { usePOSStore } from './usePOSStore'
 
 const STORAGE_KEY = 'restodash-pos-v1'
@@ -17,6 +19,7 @@ function resetStore() {
     drafts: [],
     history: [],
     queue: [],
+    openOrders: {},
     storageError: false,
   })
 }
@@ -53,16 +56,27 @@ describe('cart actions', () => {
     expect(usePOSStore.getState().cart).toEqual([])
   })
 
-  it('removes lines and clears the cart', () => {
+  it('removes lines from the cart', () => {
     usePOSStore.getState().addItem(chicken.id)
     usePOSStore.getState().addItem(coffee.id)
     const [first] = usePOSStore.getState().cart
 
     usePOSStore.getState().removeItem(first.lineId)
     expect(usePOSStore.getState().cart).toHaveLength(1)
+  })
 
-    usePOSStore.getState().clearCart()
+  it('resets cart, table, discount and note', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().setDiscount({ type: 'percent', value: 10 })
+    usePOSStore.getState().setNote('Ít đá')
+
+    usePOSStore.getState().resetOrder()
+
     expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().tableId).toBeNull()
+    expect(usePOSStore.getState().discount).toEqual({ type: 'amount', value: 0 })
+    expect(usePOSStore.getState().note).toBe('')
   })
 
   it('stores table, discount, and note', () => {
@@ -80,8 +94,8 @@ describe('drafts', () => {
   beforeEach(resetStore)
 
   it('saves the current order as a draft and resets the working order', () => {
-    usePOSStore.getState().addItem(chicken.id)
     usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem(chicken.id)
     usePOSStore.getState().setNote('Không hành')
     usePOSStore.getState().setDiscount({ type: 'amount', value: 10000 })
 
@@ -104,8 +118,8 @@ describe('drafts', () => {
   })
 
   it('loads a draft back into the working order and removes it from the list', () => {
-    usePOSStore.getState().addItem(chicken.id)
     usePOSStore.getState().setTable('ban-2')
+    usePOSStore.getState().addItem(chicken.id)
     usePOSStore.getState().saveDraft()
     const draftId = usePOSStore.getState().drafts[0].id
 
@@ -138,10 +152,10 @@ describe('completeOrder', () => {
   })
 
   it('records an order once, computes totals, and resets the working order', () => {
+    usePOSStore.getState().setTable('ban-5')
     usePOSStore.getState().addItem(chicken.id)
     usePOSStore.getState().addItem(coffee.id)
     usePOSStore.getState().addItem(coffee.id)
-    usePOSStore.getState().setTable('ban-5')
     usePOSStore.getState().setDiscount({ type: 'amount', value: 20000 })
     usePOSStore.getState().setNote('Mang ra sau')
 
@@ -290,6 +304,123 @@ describe('persistence', () => {
     expect(usePOSStore.getState().cart[0].menuItemId).toBe(chicken.id)
   })
 
+  it('upgrades a v2 snapshot to v3 with empty open orders', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+        },
+        version: 2,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().openOrders).toEqual({})
+
+    usePOSStore.getState().addItem(chicken.id)
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(parsed.version).toBe(3)
+    expect(parsed.state.openOrders).toEqual({})
+  })
+
+  it('restores open orders from a v3 snapshot', async () => {
+    const snapshot = {
+      cart: [
+        {
+          lineId: 'l1',
+          menuItemId: chicken.id,
+          qty: 2,
+          unitPrice: chicken.price,
+          name: chicken.name,
+          served: false,
+        },
+      ],
+      discount: { type: 'percent', value: 10 },
+      note: 'Ít đá',
+      updatedAt: 1767225600000,
+    }
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+          openOrders: { 'ban-5': snapshot },
+        },
+        version: 3,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().openOrders).toEqual({ 'ban-5': snapshot })
+  })
+
+  it('drops a corrupt openOrders map', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+          openOrders: 'bad',
+        },
+        version: 3,
+      }),
+    )
+
+    await expect(usePOSStore.persist.rehydrate()).resolves.not.toThrow()
+    expect(usePOSStore.getState().openOrders).toEqual({})
+  })
+
+  it('persists open orders', () => {
+    usePOSStore.setState({
+      openOrders: {
+        'ban-5': {
+          cart: [
+            {
+              lineId: 'l1',
+              menuItemId: chicken.id,
+              qty: 1,
+              unitPrice: chicken.price,
+              name: chicken.name,
+              served: false,
+            },
+          ],
+          discount: { type: 'amount', value: 0 },
+          note: 'Mang ra sau',
+          updatedAt: 1767225600000,
+        },
+      },
+    })
+
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(parsed.version).toBe(3)
+    expect(parsed.state.openOrders['ban-5']).toMatchObject({
+      note: 'Mang ra sau',
+      cart: [{ menuItemId: chicken.id, qty: 1, served: false }],
+    })
+  })
+
   it('flags storage failures and clears the flag after a successful write', () => {
     const setItem = vi
       .spyOn(Storage.prototype, 'setItem')
@@ -370,5 +501,238 @@ describe('offline queue', () => {
     expect(state.queue).toEqual([])
     expect(state.history[0].voided).toBe(true)
     expect(state.history[0].syncState).toBe('voided')
+  })
+})
+
+describe('open orders', () => {
+  beforeEach(resetStore)
+  afterEach(() => useCatalogStore.setState({ tables: TABLES }))
+
+  const servedLine = (menuItemId: string, qty = 1) => ({
+    lineId: `served-${menuItemId}`,
+    menuItemId,
+    qty,
+    unitPrice: 10000,
+    name: menuItemId,
+    served: true,
+  })
+
+  it('creates a second line when the existing line is already served', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    const firstId = usePOSStore.getState().cart[0].lineId
+    usePOSStore.getState().setLineServed(firstId, true)
+
+    usePOSStore.getState().addItem(chicken.id)
+
+    const cart = usePOSStore.getState().cart
+    expect(cart).toHaveLength(2)
+    expect(cart[0].served).toBe(true)
+    expect(cart[1].served).toBe(false)
+    expect(cart[1].qty).toBe(1)
+  })
+
+  it('keeps incrementing an unserved line', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().addItem(chicken.id)
+
+    expect(usePOSStore.getState().cart).toHaveLength(1)
+    expect(usePOSStore.getState().cart[0].qty).toBe(2)
+    expect(usePOSStore.getState().cart[0].served).toBe(false)
+  })
+
+  it('does not increment, decrement or remove a served line', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    const lineId = usePOSStore.getState().cart[0].lineId
+    usePOSStore.getState().setLineServed(lineId, true)
+
+    usePOSStore.getState().increment(lineId)
+    usePOSStore.getState().decrement(lineId)
+    usePOSStore.getState().removeItem(lineId)
+
+    expect(usePOSStore.getState().cart).toHaveLength(1)
+    expect(usePOSStore.getState().cart[0].qty).toBe(1)
+    expect(usePOSStore.getState().cart[0].served).toBe(true)
+  })
+
+  it('marks one line and all lines served', () => {
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().addItem(coffee.id)
+    const [first, second] = usePOSStore.getState().cart
+
+    usePOSStore.getState().setLineServed(first.lineId, true)
+    expect(usePOSStore.getState().cart.map((line) => line.served)).toEqual([
+      true,
+      false,
+    ])
+
+    usePOSStore.getState().setAllServed()
+    expect(usePOSStore.getState().cart.map((line) => line.served)).toEqual([
+      true,
+      true,
+    ])
+    expect(second.lineId).not.toBe(first.lineId)
+  })
+
+  it('suspends the current table order and resumes it later', () => {
+    usePOSStore.getState().switchTable('ban-1')
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().setNote('Bàn 1')
+
+    usePOSStore.getState().switchTable('ban-2')
+    expect(usePOSStore.getState().tableId).toBe('ban-2')
+    expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().openOrders['ban-1']).toMatchObject({
+      note: 'Bàn 1',
+      cart: [{ menuItemId: chicken.id }],
+    })
+
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().switchTable('ban-1')
+
+    const state = usePOSStore.getState()
+    expect(state.tableId).toBe('ban-1')
+    expect(state.cart).toHaveLength(1)
+    expect(state.cart[0].menuItemId).toBe(chicken.id)
+    expect(state.note).toBe('Bàn 1')
+    expect(state.openOrders['ban-1']).toBeUndefined()
+    expect(state.openOrders['ban-2']).toMatchObject({
+      cart: [{ menuItemId: coffee.id }],
+    })
+  })
+
+  it('keeps the takeaway order when switching to a table and back', () => {
+    usePOSStore.getState().addItem(chicken.id)
+
+    usePOSStore.getState().switchTable('ban-3')
+    expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().openOrders.__takeaway__).toMatchObject({
+      cart: [{ menuItemId: chicken.id }],
+    })
+
+    usePOSStore.getState().switchTable(null)
+
+    expect(usePOSStore.getState().tableId).toBeNull()
+    expect(usePOSStore.getState().cart).toHaveLength(1)
+    expect(usePOSStore.getState().cart[0].menuItemId).toBe(chicken.id)
+    expect(usePOSStore.getState().openOrders.__takeaway__).toBeUndefined()
+  })
+
+  it('clears the active snapshot when the order is reset', () => {
+    usePOSStore.setState({
+      tableId: 'ban-1',
+      cart: [servedLine(chicken.id)],
+      openOrders: {
+        'ban-1': {
+          cart: [servedLine(chicken.id)],
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          updatedAt: 1767225600000,
+        },
+      },
+    })
+
+    usePOSStore.getState().resetOrder()
+
+    expect(usePOSStore.getState().openOrders).toEqual({})
+    expect(usePOSStore.getState().cart).toEqual([])
+  })
+
+  it('keeps other tables when clearing the active order', () => {
+    usePOSStore.getState().switchTable('ban-1')
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().switchTable('ban-2')
+
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().resetOrder()
+
+    const state = usePOSStore.getState()
+    expect(state.cart).toEqual([])
+    expect(state.openOrders['ban-1']).toBeDefined()
+    expect(state.openOrders['ban-2']).toBeUndefined()
+  })
+
+  it('removes the active snapshot when saving a draft', () => {
+    usePOSStore.setState({
+      tableId: 'ban-1',
+      cart: [servedLine(chicken.id)],
+      openOrders: {
+        'ban-1': {
+          cart: [servedLine(chicken.id)],
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          updatedAt: 1767225600000,
+        },
+      },
+    })
+
+    usePOSStore.getState().saveDraft()
+
+    expect(usePOSStore.getState().openOrders).toEqual({})
+    expect(usePOSStore.getState().drafts).toHaveLength(1)
+    expect(usePOSStore.getState().drafts[0].tableId).toBe('ban-1')
+  })
+
+  it('stashes the current order when loading a draft for another table', () => {
+    usePOSStore.getState().switchTable('ban-1')
+    usePOSStore.getState().addItem(chicken.id)
+    usePOSStore.getState().saveDraft()
+    const draftId = usePOSStore.getState().drafts[0].id
+
+    usePOSStore.getState().addItem(coffee.id)
+    usePOSStore.getState().loadDraft(draftId)
+
+    const state = usePOSStore.getState()
+    expect(state.tableId).toBe('ban-1')
+    expect(state.cart).toHaveLength(1)
+    expect(state.cart[0].menuItemId).toBe(chicken.id)
+    expect(state.openOrders.__takeaway__).toMatchObject({
+      cart: [{ menuItemId: coffee.id }],
+    })
+    expect(state.drafts).toEqual([])
+  })
+
+  it('reports whether a table has an open order', () => {
+    expect(usePOSStore.getState().isTableBusy('ban-1')).toBe(false)
+
+    usePOSStore.getState().switchTable('ban-1')
+    usePOSStore.getState().addItem(chicken.id)
+    expect(usePOSStore.getState().isTableBusy('ban-1')).toBe(true)
+
+    usePOSStore.getState().switchTable('ban-2')
+    expect(usePOSStore.getState().isTableBusy('ban-1')).toBe(true)
+    expect(usePOSStore.getState().isTableBusy('ban-2')).toBe(false)
+
+    usePOSStore.getState().addItem(coffee.id)
+    expect(usePOSStore.getState().isTableBusy('ban-2')).toBe(true)
+  })
+
+  it('pays with the local table name when the table has no serverId', () => {
+    useCatalogStore.setState({
+      tables: [{ id: 'ban-local', name: 'Bàn local', seats: 4 }],
+    })
+    usePOSStore.getState().switchTable('ban-local')
+    usePOSStore.getState().addItem(chicken.id)
+
+    const order = usePOSStore.getState().completeOrder({ method: 'cash' })!
+
+    expect(order.tableName).toBe('Bàn local')
+    const payload = usePOSStore.getState().queue[0].payload
+    expect('tableId' in payload ? payload.tableId : undefined).toBeUndefined()
+  })
+
+  it('pays with the server tableId when the table is synced', () => {
+    const serverId = '00000000-0000-4000-8000-000000000001'
+    useCatalogStore.setState({
+      tables: [
+        { id: 'ban-synced', name: 'Bàn 01', seats: 4, serverId },
+      ],
+    })
+    usePOSStore.getState().switchTable('ban-synced')
+    usePOSStore.getState().addItem(chicken.id)
+
+    usePOSStore.getState().completeOrder({ method: 'cash' })
+
+    const payload = usePOSStore.getState().queue[0].payload
+    expect('tableId' in payload ? payload.tableId : undefined).toBe(serverId)
   })
 })

@@ -1,9 +1,9 @@
 # RestoDash POS — Báo cáo dự án & cẩm nang bàn giao
 
-> **Phiên bản:** 2.0 — 20/11/2026  
-> **Trạng thái:** Frontend POS v1 + tích hợp backend NestJS (menu/bàn từ API, đăng nhập PIN theo thiết bị, hàng đợi đơn offline, đồng bộ nền).  
-> **Nhánh:** `docs/fe-be-connection-plan` → `main`  
-> **Phạm vi:** POS dùng thật tại quầy, có backend. Các module Bàn/Đặt bàn/Khách hàng/Báo cáo/Nhân viên/Cài đặt vẫn là placeholder.  
+> **Phiên bản:** 2.1 — 22/11/2026  
+> **Trạng thái:** Frontend POS v1 + tích hợp backend NestJS (menu/bàn từ API, đăng nhập PIN theo thiết bị, hàng đợi đơn offline, đồng bộ nền) + module Bàn (phục vụ tại bàn, đơn mở lưu local).  
+> **Nhánh:** `feat/tables` → `main`  
+> **Phạm vi:** POS dùng thật tại quầy, có backend. Module **Bàn đã có (shipped)**; các module Đặt bàn/Khách hàng/Báo cáo/Nhân viên/Cài đặt vẫn là placeholder.  
 > **Vai trò tài liệu:** đây là **nguồn sự thật duy nhất** cho các fork. Đọc file này trước khi đọc code hoặc lập kế hoạch module mới.
 
 > **Cập nhật 20/11/2026 — tích hợp FE–BE.** Phần mô tả bên dưới viết cho bản frontend-only v1; các điểm đã đổi được đánh dấu **[Cập nhật]**. Nguồn chi tiết: `docs/superpowers/plans/2026-11-20-fe-be-connection-pos.md` (plan đã duyệt) và `docs/superpowers/reports/2026-11-20-fe-be-connection-pos-report.md` (báo cáo hoàn thành). Tóm tắt các thay đổi:
@@ -14,6 +14,14 @@
 > - **Offline-first:** `src/store/usePOSStore.ts` (persist **v2**) giữ hàng đợi `queue: SyncItem[]`; `src/sync/*` (worker, backoff, errors) đẩy đơn lên server FIFO, có backoff, pause khi 401, dead-letter, crash recovery, và xử lý xung đột giá.
 > - **Huỷ đơn:** synced → `POST /orders/:id/void` (chỉ OWNER/MANAGER); pending → huỷ local, không lên server.
 > - **Đồng bộ đa thiết bị:** mỗi đơn có `clientId` (idempotency key) nên không tạo trùng khi retry/crash. Chặn đăng xuất khi còn đơn chờ (Q3).
+
+> **Cập nhật 22/11/2026 — module Bàn (Phase 2) đã shipped.** Thiết kế/plan tại `docs/superpowers/specs/2026-11-22-tables-design.md` và `docs/superpowers/plans/2026-11-22-tables.md`. Tóm tắt khi đọc code:
+>
+> - **Trạng thái bàn suy ra từ đơn mở**, không thêm cột `status` mới: `empty` (không có đơn) / `pending` (có món chưa mang ra) / `served` (mọi món đã mang ra). Mỗi thẻ có nhãn chữ + icon, màu chỉ là phụ.
+> - **Đã mang ra tính theo từng món** (`served` trên `CartLine`) + nút “Chọn tất cả”; dòng đã ra khoá sửa/xoá, thêm món trùng tạo dòng mới `served: false`.
+> - **Thanh toán xong bàn về trống ngay** (`completeOrder` đóng đơn, xoá snapshot `openOrders`); không có trạng thái “cần dọn”. Còn món chưa ra → `ChargeModal` cảnh báo 2 bước trước khi thu tiền.
+> - **Thêm/xoá bàn offline-first**: ghi local rồi enqueue `pendingTableOps` trong `useCatalogStore`; flush khi online/`refresh()`. Server xoá mềm (`isActive=false`), tạo idempotent theo `legacyId`, chỉ OWNER/MANAGER; chặn xoá bàn đang có đơn mở.
+> - **Đơn mở lưu local-only** trong persist v3 (`openOrders`); server **chỉ nhận đơn đã thanh toán** qua hàng đợi `queue` có sẵn. Chuyển bàn cất/nạp snapshot nên không mất dữ liệu.
 
 ## Mục lục
 
@@ -52,12 +60,13 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | --- | --- |
 | Màn hình POS | **Dùng thật** |
 | Màn hình Đơn hàng | **Dùng thật** (lịch sử local + trạng thái đồng bộ) |
-| 9 màn hình còn lại | Placeholder có chủ đích |
+| Màn hình Bàn | **[Cập nhật 22/11] Dùng thật** — sơ đồ theo khu vực, 3 trạng thái suy ra từ đơn mở |
+| 7 màn hình còn lại | Placeholder có chủ đích |
 | Backend/API/đăng nhập/đồng bộ | **[Cập nhật] Dùng thật** — NestJS + PostgreSQL trong `server/`; PIN theo thiết bị; hàng đợi đơn + sync nền |
 | Thanh toán ngân hàng/thẻ thật | **Chưa có** — chỉ ghi nhận phương thức |
 | Máy in ESC/POS | **Chưa có** — in qua hộp thoại trình duyệt |
-| Test | **[Cập nhật] 150/150 pass** (root, 27 file) + server 57 unit / 75 e2e |
-| Lint | `oxlint` sạch (root); `eslint` sạch (server) |
+| Test | **[Cập nhật 22/11] 242/242 pass** (root, 38 file) + server 64 unit / 108 e2e |
+| Lint | `oxlint` sạch (root, 4 warning fast-refresh cũ); `oxlint --type-aware` sạch (server) |
 | Build | Pass; PWA precache 30 entries (~1.68 MB) |
 | QA giao diện | 1440×900, 1280×800, 1024×768, 390×844; touch 768×1024 |
 | Hoá đơn 80mm | PDF 1 trang, 227×567pt, không tràn ngang |
@@ -91,6 +100,10 @@ RestoDash POS là giao diện bán hàng cho nhà hàng/quán ăn, chạy hoàn 
 | Hoá đơn | `src/components/receipt/Receipt.tsx`, `src/components/modals/ReceiptModal.tsx` |
 | Tìm kiếm toàn cục | `src/components/search/GlobalSearch.tsx`, `src/lib/global-search.ts` |
 | Trang Đơn hàng | `src/pages/OrdersPage.tsx` |
+| Trang Bàn, 3 trạng thái bàn | `src/pages/TablesPage.tsx`, `src/lib/table-state.ts` |
+| Thêm/xoá bàn offline, hàng đợi bàn | `src/store/useCatalogStore.ts`, `src/sync/table-sync.ts`, `src/api/tables.ts` |
+| Đơn mở theo bàn, món đã mang ra | `src/store/usePOSStore.ts`, `src/components/order/CartRow.tsx`, `src/components/modals/ChargeModal.tsx` |
+| CRUD bàn server (xoá mềm) | `server/src/tables/` |
 | PWA/manifest/precache | `vite.config.ts`, `public/` |
 | Backend API | `server/src/` |
 
@@ -155,9 +168,9 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 | **POS** | Dùng thật | Menu, giỏ, bàn, giảm giá, ghi chú, thanh toán, in |
 | **Đơn hàng** | Dùng thật | Lọc hôm nay/tất cả, tìm mã/bàn, xem và in lại |
 | Tổng quan | Placeholder | Sẽ có khi nối backend |
-| Bàn | Placeholder | Module tiếp theo sau nền tảng |
+| **Bàn** | **Dùng thật** | **[Cập nhật 22/11]** 3 trạng thái suy ra từ đơn mở; thêm/xoá offline-first; `#/tables` |
 | Đặt bàn | Placeholder | Phụ thuộc Bàn + Khách hàng |
-| Thực đơn | Placeholder | Hiện sửa bằng file dữ liệu |
+| Thực đơn | Dùng thật | Quản lý món/danh mục qua server (Owner/Manager được sửa) |
 | Khách hàng | Placeholder | Phụ thuộc backend |
 | Báo cáo | Placeholder | Phụ thuộc đơn hàng/chi phí thật |
 | Chi phí | Placeholder | Phụ thuộc backend |
@@ -166,14 +179,14 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 ### 2.2 Chất lượng hiện tại
 
-**[Cập nhật 20/11/2026]**
+**[Cập nhật 21/11/2026]**
 
 | Kiểm tra | Kết quả |
 | --- | --- |
-| `npm test` (root) | 150 pass / 27 file |
-| `npm run lint` (root) | Pass (`oxlint`) |
+| `npm test` (root) | **[Cập nhật 22/11] 242 pass / 38 file** |
+| `npm run lint` (root) | Pass (`oxlint`, 4 warning fast-refresh có sẵn ở `router.tsx`) |
 | `npm run build` (root) | Pass; TypeScript strict + Vite build |
-| `server`: `lint`/`test`/`test:e2e`/`build` | Pass; 57 unit / 75 e2e |
+| `server`: `lint`/`test`/`test:e2e`/`build` | **[Cập nhật 22/11] Pass; 64 unit / 108 e2e** |
 | PWA | `dist/sw.js`, `dist/manifest.webmanifest`, `dist/registerSW.js` |
 | Precache | 30 entries, ~1.68 MiB |
 | QA desktop | 1440×900, 1280×800, 1024×768 |
@@ -222,6 +235,15 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 - Offline-first: hàng đợi đơn (persist v2) + sync nền FIFO, backoff, pause khi 401, dead-letter, crash recovery, xử lý xung đột giá.
 - Huỷ đơn đúng quyền (OWNER/MANAGER) online và offline.
 - UI trạng thái đồng bộ: `SyncBadge`, `OfflineBanner`, `PendingOrdersDialog`; chặn đăng xuất khi còn đơn chờ.
+
+**[Cập nhật 22/11/2026] Module Bàn:**
+
+- Trang `#/tables`: lưới bàn nhóm theo khu vực, 3 trạng thái suy ra từ đơn (`Trống` / `Chưa phục vụ` / `Đã phục vụ`) kèm nhãn chữ + icon; bấm bàn → POS.
+- Đơn mở theo bàn: đổi bàn tự cất/nạp snapshot `openOrders` (kể cả slot `__takeaway__`); `resetOrder`/`completeOrder` dọn snapshot tương ứng.
+- Tick “Đã mang ra” từng món + “Chọn tất cả”; dòng đã ra khoá stepper/xoá; thêm món trùng sau khi đã ra tạo dòng mới.
+- Thanh toán bàn còn món chưa ra phải xác nhận lần 2; thanh toán xong bàn về trống ngay.
+- Thêm/xoá bàn offline-first qua `pendingTableOps`; server có `POST /tables` (idempotent theo `legacyId`) và `DELETE /tables/:id` (xoá mềm `isActive=false`), giới hạn OWNER/MANAGER.
+- Persist nâng v2 → v3 (thêm `openOrders`), migration tự động, không mất giỏ/nháp/lịch sử/hàng đợi cũ.
 
 ---
 
@@ -280,7 +302,7 @@ Quán cần một màn hình bán hàng nhanh tại quầy, không phụ thuộc
 
 - Modal dùng `<dialog>` native: focus trap, Esc, backdrop.
 - Toast dùng `aria-live="polite"`, tự tắt sau 3 giây.
-- Không dùng router ở v1; chuyển trang bằng state trong `App.tsx`.
+- Điều hướng qua hash router (`src/app/router.tsx`); mỗi trang có URL dạng `#/<page>` (ví dụ `#/pos`, `#/orders`, `#/menu`), back/forward và deep-link hoạt động.
 
 ### 3.4 Tương tác và accessibility
 
@@ -349,8 +371,12 @@ OrderPanel ──calcTotals────┘
                                              ReceiptModal ──print──▶ 80mm
 
 GlobalSearch ──searchEverything──▶ menu + drafts + history
+
+TablesPage ──switchTable──▶ usePOSStore.openOrders[tableId] ──▶ POS (cart/discount/note)
+useCatalogStore.pendingTableOps ──flushTableOps──▶ API /tables ──▶ server (xoá mềm)
 ```
 
+- **[Cập nhật 22/11]** Đơn mở của các bàn khác nằm trong `openOrders` (local-only); server chỉ nhận đơn đã thanh toán. Trạng thái bàn là hàm suy ra từ `cart` (`tableState`), không phải state lưu cứng.
 - UI state (modal, drawer, search, filter) nằm trong React local state.
 - Domain state (cart, table, discount, note, drafts, history) nằm trong Zustand.
 - Store không phụ thuộc component; có thể thay lớp lưu trữ sau này.
@@ -360,7 +386,8 @@ GlobalSearch ──searchEverything──▶ menu + drafts + history
 ```text
 src/
   main.tsx              mount React, import font + CSS
-  App.tsx               page switch, modal thanh toán/hoá đơn
+  App.tsx               auth gate + ErrorBoundary + RouterProvider
+  app/router.tsx        hash router, route table 11 trang, layout + layout context
   config.ts             brand, địa chỉ, VAT, số bàn, danh sách trang
   types.ts              domain types
   index.css             theme, animation, touch, print CSS
@@ -375,13 +402,20 @@ src/
     search.ts           bỏ dấu tiếng Việt, matchesQuery
     menu-query.ts       lọc/sắp xếp/tải thêm
     global-search.ts    gộp kết quả món + nháp + hoá đơn
+    table-state.ts      [22/11] 3 trạng thái bàn, đếm món chưa ra
   store/
-    usePOSStore.ts      Zustand persist + validate + storage error
+    usePOSStore.ts      Zustand persist v3 + validate + storage error + openOrders
+    useCatalogStore.ts  [22/11] catalog + hàng đợi thao tác bàn
+  sync/
+    worker.ts           hàng đợi đơn đã thanh toán
+    table-sync.ts       [22/11] flush thao tác bàn khi online
   components/
+    ErrorBoundary.tsx   chặn lỗi render, trang lỗi tiếng Việt
     layout/             AppShell, Sidebar, TopBar, StorageWarning...
     menu/               MenuPanel, MenuGrid, MenuCard, CategoryTabs
     order/              OrderPanel, CartRow, OrderSummary, TableBadge
     modals/             Charge, Table, Discount, Drafts, Receipt, Confirm
+    tables/             [22/11] TableFormModal
     receipt/            Receipt
     search/             GlobalSearch
     stats/              StatsCards
@@ -389,7 +423,8 @@ src/
   pages/
     POSPage.tsx         màn hình bán hàng
     OrdersPage.tsx      lịch sử đơn
-    PlaceholderPage.tsx 9 trang chờ backend
+    TablesPage.tsx      [22/11] sơ đồ bàn + thêm/xoá bàn
+    PlaceholderPage.tsx 7 trang chờ backend
   test/setup.ts         jest-dom, cleanup, dialog polyfill, viewport 1440×900
 docs/
   superpowers/specs/    thiết kế đã duyệt
@@ -403,8 +438,10 @@ public/                 favicon, icon PWA
 | Type | Trường chính | Ghi chú |
 | --- | --- | --- |
 | `MenuItem` | `id`, `name`, `description?`, `price`, `category`, `image`, `popular?` | Giá đọc tại thời điểm tính tiền |
-| `TableOption` | `id`, `name`, `seats` | 12 bàn sinh từ config |
-| `CartLine` | `lineId`, `menuItemId`, `qty` | `lineId` độc lập với món |
+| `TableOption` | `id`, `name`, `seats`, `serverId?`, `zone?`, `active?`, `syncState?` | `id` = legacy id ổn định; `serverId` = UUID sau khi sync; **không có cột `status` bàn** |
+| `CartLine` | `lineId`, `menuItemId`, `qty`, `unitPrice?`, `name?`, `served?` | `lineId` độc lập với món; `served: true` = đã mang ra (khoá sửa/xoá) |
+| `OpenOrderSnapshot` | `cart`, `discount`, `note`, `updatedAt` | **[22/11]** đơn mở theo bàn, chỉ lưu local (persist v3) |
+| `TableState` | `empty \| pending \| served` | **[22/11]** suy ra từ `cart`, không lưu cứng |
 | `Discount` | `type: amount \| percent`, `value` | Không vượt tạm tính |
 | `Draft` | `id`, `tableId`, `items`, `discount`, `note`, `createdAt` | Bản sao giỏ tại lúc lưu |
 | `OrderLineSnapshot` | `menuItemId`, `name`, `unitPrice`, `qty` | Snapshot lúc thanh toán |
@@ -414,16 +451,17 @@ public/                 favicon, icon PWA
 ### 4.5 Store và persistence
 
 **Key:** `restodash-pos-v1` (giữ nguyên key để migrate tại chỗ)  
-**Version:** `2` (**[Cập nhật]** — v1→v2 có migration tự động, thêm hàng đợi `queue`)
+**Version:** `3` (**[Cập nhật 22/11]** — v1/v2→v3 có migration tự động; v2→v3 thêm `openOrders` cho đơn mở theo bàn)
 
-**Persist các trường:** `cart`, `tableId`, `discount`, `note`, `drafts`, `history`, `queue`.  
+**Persist các trường:** `cart`, `tableId`, `discount`, `note`, `drafts`, `history`, `queue`, `openOrders`.  
 **Không persist:** UI state, `storageError`.
 
 **Cơ chế an toàn:**
 
 - `getItem` parse JSON, kiểm tra `version`, validate toàn bộ cấu trúc bằng type guard.
 - Dữ liệu hỏng/sai shape → trả `null`, hydrate mặc định, không crash.
-- **[Cập nhật]** v1→v2 migration: dữ liệu v1 được nâng cấp (thêm `queue: []`, `history` đánh dấu `syncState: 'synced'`).
+- **[Cập nhật]** v1→v3 migration: dữ liệu v1 được nâng cấp (thêm `queue: []`, `openOrders: {}`, `history` đánh dấu `syncState: 'synced'`).
+- **[Cập nhật 22/11]** v2→v3 migration: giữ nguyên giỏ/nháp/lịch sử/hàng đợi, thêm `openOrders: {}`; dữ liệu v3 validate cả `openOrders`, shape hỏng → `{}` thay vì trắng app.
 - `setItem` bắt lỗi quota/private mode; bật `storageError`.
 - `StorageWarning` hiện banner cố định khi `storageError = true`; tự tắt khi ghi thành công trở lại.
 - `partialize` chỉ ghi domain state, không ghi action.
@@ -432,13 +470,15 @@ public/                 favicon, icon PWA
 
 - `addItem`: nếu món đã có thì tăng `qty`, chưa có thì tạo `lineId` mới.
 - `decrement`: giảm; về 0 thì xoá dòng.
-- `clearCart`: **hiện chỉ xoá `cart`**, giữ nguyên `tableId`, `discount`, `note`; nút “Xoá đơn” chưa có `ConfirmModal`. Đây là hạn chế đã biết — xem §7.2.
+- `resetOrder`: **[Cập nhật]** xoá toàn bộ đơn hiện tại — `cart`, `tableId` (về `null`), `discount` (về `{amount,0}`) và `note` (về `''`). Nút “Xoá đơn” mở `ConfirmModal` trước khi xoá (trước đây là `clearCart`, chỉ xoá `cart`).
 - `saveDraft`: chỉ lưu khi giỏ có món; snapshot giỏ rồi làm trống đơn hiện tại.
 - `loadDraft`: nạp lại giỏ/bàn/giảm giá/ghi chú và xoá nháp khỏi danh sách.
 - `completeOrder`: **[Cập nhật]** snapshot món, tính totals, sinh `clientId`, ghi đơn local với mã tạm `OFF-…` (`syncState: 'pending'`), đẩy vào `queue` rồi kích hoạt sync nền. Mã `HD-…` từ server được áp vào khi sync xong.
 - **Sync:** `markItemInflight`, `setItemState`, `dropQueueItem`, `retryItem`, `enqueueVoid`, `voidLocalOrder`, `applyServerOrder` phục vụ worker.
+- **[Cập nhật 22/11] Món đã mang ra:** `setLineServed` đổi từng dòng; `setAllServed` tick toàn bộ; `addItem` nếu món đã ra thì tạo dòng mới `served: false` (không cộng dồn); `increment`/`decrement`/`removeItem` no-op với dòng đã ra.
+- **[Cập nhật 22/11] Đơn mở:** `switchTable` cất đơn hiện tại vào `openOrders[key(tableId)]` rồi nạp đơn bàn đích (mang về dùng `__takeaway__`); `setTable` gọi lại `switchTable`; `resetOrder`/`completeOrder`/`saveDraft`/`loadDraft` dọn snapshot để không trùng dữ liệu.
 
-**Giới hạn:** một thiết bị, một tab. Mở nhiều tab có thể ghi đè lẫn nhau. Migration hiện hỗ trợ tới version 2.
+**Giới hạn:** một thiết bị, một tab. Mở nhiều tab có thể ghi đè lẫn nhau. Migration hiện hỗ trợ tới version 3. Đơn mở và thao tác bàn chỉ có trên thiết bị này; server chỉ nhận đơn đã thanh toán.
 
 ### 4.6 Tính tiền
 
@@ -469,7 +509,7 @@ total         = taxable + tax
 ```bash
 npm install
 npm run dev        # http://localhost:5173, proxy /api → :3001
-npm test           # 150 test
+npm test           # 242 test (38 file)
 npm run lint       # oxlint
 npm run build      # tsc -b + vite build
 npm run preview    # chạy bản build/PWA
@@ -477,6 +517,7 @@ npm run preview    # chạy bản build/PWA
 # backend
 cd server && npm run start:dev      # http://localhost:3001, Swagger /api/docs
 cd server && npm test && npm run test:e2e && npm run lint && npm run build
+# server: 64 unit test / 11 file, 108 e2e / 13 file (test:e2e cần TEST_DATABASE_URL + Postgres)
 ```
 
 - Node yêu cầu: `^20.19.0` hoặc `>=22.12.0`.
@@ -488,14 +529,14 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 ### 4.9 Giới hạn kiến trúc hiện tại
 
 - **Một store lớn** cho toàn bộ POS; chưa tách slice theo module.
-- **Chưa có router**; `App.tsx` chuyển trang bằng state, không deep-link/back button.
+- **[Cập nhật] Có hash router** (`src/app/router.tsx`, React Router v7 `createHashRouter`); các trang có URL `#/<page>`, deep-link/back-forward hoạt động. Không cần rewrite host khi deploy tĩnh.
 - **[Cập nhật] Có lớp API/service** (`src/api/*`, `src/services/orderService.ts`); POS lấy menu/bàn từ server, không gọi dữ liệu tĩnh trực tiếp (chỉ fallback seed).
-- **Chưa có ErrorBoundary**; lỗi render ngoài dự kiến có thể trắng màn hình.
+- **[Cập nhật] Có `ErrorBoundary`** (`src/components/ErrorBoundary.tsx`); lỗi render ngoài dự kiến hiển thị trang lỗi tiếng Việt thay vì trắng màn hình.
 - **Chưa có CI**; test/lint/build chạy local.
 - **[Cập nhật] E2E backend có trong repo** (`server/test/*.e2e-spec.ts`); E2E UI vẫn ngoài repo.
 - **[Cập nhật] Menu/bàn từ server**, có cache offline; sửa món trong `server/prisma/seed-data.ts`.
 - **[Cập nhật] Nhiều thiết bị đồng bộ** qua `clientId`; chưa có khoá liên-tab (`navigator.locks` mới là thiết kế đơn giản hoá single-flight flag).
-- **[Cập nhật] Migration persist v1→v2** đã có test; version hiện tại 2.
+- **[Cập nhật 22/11] Migration persist v1/v2→v3** đã có test; version hiện tại 3. Hàng đợi bàn `pendingTableOps` nằm trong `useCatalogStore` (cache catalog), không phải `usePOSStore`.
 
 ---
 
@@ -506,7 +547,7 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 | ID | Quyết định | Lý do | Hệ quả |
 | --- | --- | --- | --- |
 | ADR-01 | React + Vite + TypeScript + Tailwind, SPA tĩnh | POS nội bộ, không cần SSR; build nhẹ, deploy tĩnh | Không có SEO/server rendering; cần HTTPS cho PWA |
-| ADR-02 | Không dùng router ở v1 | Giảm phức tạp cho 2 màn hình thật | Khi thêm module phải bổ sung router/deep-link |
+| ADR-02 | Hash router (React Router v7, `createHashRouter`) | 11 trang; cần URL/deep-link, back/forward và sẵn route guard/code-split; hash không cần rewrite host khi deploy tĩnh | Mỗi trang có URL `#/<page>`; deep-link và back/forward hoạt động |
 | ADR-03 | Zustand persist localStorage | Đơn giản, offline, không cần backend | Một thiết bị/tab; cần thay lớp service khi có API |
 | ADR-04 | Tiền VND số nguyên, làm tròn từng bước | Tránh sai số floating point | Không dùng số thập phân cho tiền |
 | ADR-05 | Hoá đơn snapshot tên/giá | Sửa menu không làm sai lịch sử | `OrderLineSnapshot` là bắt buộc |
@@ -524,6 +565,10 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 | ADR-17 | Offline-first cho đơn hàng: persist hàng đợi v2 + sync nền FIFO | Quán phải bán được khi mất mạng; không được mất/trùng đơn | `clientId` là idempotency key; pause khi 401; dead-letter cho lỗi 400/403/404 |
 | ADR-18 | Mã `HD-…` do server cấp, `OFF-…` chỉ là mã tạm | Đồng hồ máy lệch; mã/ngày nghiệp vụ phải do server quyết | Hoá đơn offline ghi “Chưa đồng bộ”; FE không tự sinh mã chính thức |
 | ADR-19 | FE dùng seed tĩnh `src/data/catalog-seed.ts` làm fallback | Máy hoàn toàn mới mở offline vẫn có menu/bàn để xem | Catalog live luôn ưu tiên hơn seed; seed chỉ dùng khi chưa có cache |
+| ADR-20 | Trạng thái bàn suy ra từ đơn mở (`tableState`), không lưu cột `status` | Tránh lệch giữa “trạng thái bàn” và thực tế đơn | Chỉ 3 giá trị `empty`/`pending`/`served`; thêm món tự chuyển `served → pending` |
+| ADR-21 | Đơn mở lưu local-only trong persist v3 (`openOrders`); server chỉ nhận đơn đã thanh toán | Chỉ một máy POS; server hiện chỉ có `COMPLETED`/`VOIDED` | Không gửi UUID giả cho đơn mở; web order trước này sẽ nạp thành đơn mở local |
+| ADR-22 | Món đã mang ra bị khoá sửa/xoá; muốn đổi thì thêm dòng mới | Tránh sửa lịch sử món đã ra | `served: true` no-op với stepper/xoá; `addItem` tạo dòng mới `served: false` |
+| ADR-23 | Thêm/xoá bàn offline-first với xoá mềm trên server | Quán đổi sơ đồ không cần mạng; vẫn giữ lịch sử hoá đơn | `isActive=false` thay `DELETE` cứng; xoá bàn có đơn mở bị chặn; OWNER/MANAGER |
 
 ---
 
@@ -543,7 +588,11 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 | Touch target ≥44px | Tablet cảm ứng | `.touch-target`, media query |
 | Tôn trọng reduced motion | Accessibility | `@media (prefers-reduced-motion)` |
 | PWA build ra đủ manifest/sw | Offline | `vite.config.ts`, `npm run build` |
-| Không đổi key/version persist tùy tiện | Mất dữ liệu người dùng | `STORAGE_KEY`, `version` |
+| Không đổi key/version persist tùy tiện | Mất dữ liệu người dùng | `STORAGE_KEY`, `version` (v3) |
+| **[22/11]** Trạng thái bàn không lưu cứng | Lệch với đơn mở | `tableState`, `TablesPage` tests |
+| **[22/11]** Dòng đã mang ra không bị sửa/xoá | Sai món đã phục vụ | `usePOSStore`, `CartRow` tests |
+| **[22/11]** Không xoá bàn đang có đơn mở | Mất đơn đang phục vụ | `useCatalogStore.deleteTable`, `TablesPage` |
+| **[22/11]** Đơn mở không lên server | Server chỉ có đơn `COMPLETED`/`VOIDED` | `openOrders` local-only; server test chỉ nhận paid order |
 
 ---
 
@@ -552,7 +601,7 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 ### 7.1 Điểm mạnh
 
 - **Domain rõ ràng:** types tách biệt, tiền/đơn hàng có snapshot, không trộn UI với nghiệp vụ.
-- **Test có giá trị:** 113 test tập trung vào tính tiền, store, tìm kiếm, luồng chính; không phải test hình thức.
+- **Test có giá trị:** 242 test (root) + 64 unit / 108 e2e (server), tập trung vào tính tiền, store/persist, bàn (đơn mở, served, CRUD/xoá mềm), tìm kiếm, routing, luồng chính; không phải test hình thức.
 - **Persistence được gia cố:** validate shape/version, cảnh báo lỗi ghi — hiếm dự án frontend nhỏ làm đủ.
 - **In hoá đơn thực dụng:** đã kiểm tra PDF thật, xử lý tên dài, không chỉ “CSS đẹp”.
 - **Responsive có chủ đích:** 4 kích thước, touch target, breakpoint menu hợp lý.
@@ -564,17 +613,17 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 
 **P0 — trước khi mở module mới:**
 
-1. **Router + deep-link.** Thêm React Router (hoặc route map) để mỗi module có URL, back/forward hoạt động.
+1. ~~**Router + deep-link.** Thêm React Router (hoặc route map) để mỗi module có URL, back/forward hoạt động.~~ ✅ Đã làm (2026-11-21): hash router `src/app/router.tsx`.
 2. **Tách store theo miền.** `pos`, `tables`, `reservations`, `staff`, `customers`, `settings`; tránh một store khổng lồ.
 3. **Lớp service/repository.** Component không gọi trực tiếp localStorage; định nghĩa interface để thay adapter local → HTTP.
-4. **ErrorBoundary.** Lỗi render không được làm trắng toàn app.
+4. ~~**ErrorBoundary.** Lỗi render không được làm trắng toàn app.~~ ✅ Đã làm (2026-11-21): `src/components/ErrorBoundary.tsx`.
 5. **CI.** Chạy lint + test + build trên mỗi PR.
 6. **E2E smoke trong repo.** Ít nhất luồng thêm món → thanh toán → in; QA hiện tại nằm ngoài repo.
-7. **Sửa “Xoá đơn”:** phải có xác nhận và reset toàn bộ đơn (bàn/giảm giá/ghi chú), không chỉ `cart`; hiện đơn sau có thể thừa hưởng dữ liệu cũ.
+7. ~~**Sửa “Xoá đơn”:** phải có xác nhận và reset toàn bộ đơn (bàn/giảm giá/ghi chú), không chỉ `cart`; hiện đơn sau có thể thừa hưởng dữ liệu cũ.~~ ✅ Đã làm (2026-11-21): `resetOrder` + `ConfirmModal`.
 
 **P1 — nên làm sớm:**
 
-7. Migration schema (version 2+) có test.
+7. ~~Migration schema (version 2+) có test.~~ ✅ Đã làm (2026-11-22): v1/v2 → v3 có test, giữ nguyên dữ liệu cũ.
 8. Sửa tìm kiếm toàn cục: mở đơn nháp không được âm thầm lưu giỏ hiện tại; hỏi xác nhận như `DraftsModal`.
 9. Giới hạn `@page 80mm` chỉ khi in hoá đơn, không ảnh hưởng Ctrl+P thường.
 10. Thêm `loading="lazy"` cho ảnh menu.
@@ -593,16 +642,16 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 | Rủi ro | Hậu quả | Giảm thiểu |
 | --- | --- | --- |
 | Thêm module vào store hiện tại | Store phình, khó test, tranh chấp state | Tách slice/service trước |
-| Không có router | Không deep-link, khó back, khó phân quyền theo route | Thêm router ở Phase 0 |
+| ~~Không có router~~ | Không deep-link, khó back, khó phân quyền theo route | ✅ Đã thêm hash router (2026-11-21) |
 | Dùng localStorage cho dữ liệu dùng chung | Mỗi máy một dữ liệu, xung đột | Backend + sync trước Bàn/Đặt bàn |
 | Không có auth | Ai cũng sửa được dữ liệu | Auth + role ở Phase 1 |
 | Không có CI/E2E | Regression lọt vào bản dùng thật | CI + smoke E2E |
-| Không có ErrorBoundary | Một lỗi nhỏ trắng cả app | Thêm ngay Phase 0 |
+| ~~Không có ErrorBoundary~~ | Một lỗi nhỏ trắng cả app | ✅ Đã thêm `ErrorBoundary` (2026-11-21) |
 | Ảnh stock | Không đúng món, vấn đề bản quyền | Thay ảnh thật trước khi dùng |
 
 ### 7.4 Kết luận review
 
-Đây là một **v1 frontend tốt, dùng được thật**, không phải prototype. Nền tảng domain/test/persistence đủ chắc để tiếp tục. Điểm yếu chính không nằm ở UI mà ở **kiến trúc mở rộng**: chưa có router, service layer, auth, CI và đồng bộ. Vì vậy fork tiếp theo nên dành một phase ngắn gia cố nền tảng trước khi thêm Bàn/Đặt bàn/Nhân viên.
+Đây là một **v1 frontend tốt, dùng được thật**, không phải prototype. Nền tảng domain/test/persistence đủ chắc để tiếp tục. Điểm yếu chính không nằm ở UI mà ở **kiến trúc mở rộng**: service layer, CI và đồng bộ (hash router có từ 2026-11-21; auth có từ Phase 1; module Bàn shipped 2026-11-22). Fork tiếp theo (Đặt bàn/Nhân viên) nên kế thừa mô hình đã chốt ở §8.4: trạng thái suy ra từ dữ liệu nguồn, thao tác offline-first có hàng đợi riêng, dữ liệu dùng chung lên server.
 
 ---
 
@@ -620,15 +669,15 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 
 **Mục tiêu:** làm cho việc thêm module không phá v1.
 
-- Thêm router/deep-link; route table cho 11 trang.
+- ~~Thêm router/deep-link; route table cho 11 trang.~~ ✅ Đã làm (2026-11-21).
 - Tách `usePOSStore` thành slice hoặc feature store; giữ API tương thích.
 - Thêm `services/` + repository interface cho POS, menu, orders.
-- Thêm `ErrorBoundary` + trang lỗi.
+- ~~Thêm `ErrorBoundary` + trang lỗi.~~ ✅ Đã làm (2026-11-21).
 - Thêm CI (lint/test/build) và smoke E2E.
 - Thêm migration helper cho persist (chuẩn bị version 2).
 - Sửa các P1 nhỏ (global search, print scope, lazy ảnh).
 
-**Done khi:** POS vẫn 113 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
+**Done khi:** POS vẫn ≥242 test + smoke pass; router hoạt động; không đổi hành vi người dùng.
 
 ### 8.3 Phase 1 — Nền tảng backend (backend-only) ✅
 
@@ -652,17 +701,17 @@ cd server && npm test && npm run test:e2e && npm run lint && npm run build
 
 **Done khi:** backend chạy sạch bằng Docker + seed; auth/order/void/idempotency pass; CI xanh; frontend vẫn 113/113; `src/` không đổi.
 
-### 8.4 Phase 2 — Bàn (3–5 ngày)
+### 8.4 Phase 2 — Bàn ✅ (đã shipped 22/11/2026, branch `feat/tables`)
 
-**Mục tiêu:** sơ đồ bàn và trạng thái phục vụ.
+**Mục tiêu đã giao:** sơ đồ bàn và trạng thái phục vụ tại quầy, chạy được offline.
 
-- Data: `Table` (id, name, zone, seats, status, currentOrderId, updatedAt), `TableZone`.
-- UI: sơ đồ bàn, trạng thái trống/đang phục vụ/đặt trước/dọn dẹp; mở đơn theo bàn.
-- Hành vi: gộp bàn, chuyển bàn, tách bàn, mang đi.
-- API: CRUD bàn, cập nhật trạng thái, khóa bàn theo phiên.
-- Realtime/SSE nếu nhiều thiết bị.
+- **Data:** `TableOption` (`id` legacy + `serverId`, `name`, `seats`, `zone`, `active`, `syncState`) — **không có cột `status` bàn**; `CartLine.served`; `openOrders` (persist v3); server thêm `isActive` (xoá mềm).
+- **UI:** `#/tables` lưới bàn theo khu vực, 3 trạng thái suy ra từ đơn (`Trống`/`Chưa phục vụ`/`Đã phục vụ`) kèm nhãn chữ + icon; `TableFormModal` thêm bàn; bấm bàn → POS.
+- **Hành vi:** đổi bàn cất/nạp đơn không mất; tick món đã mang ra theo dòng + “Chọn tất cả”; dòng đã ra khoá sửa/xoá; thanh toán (cảnh báo nếu còn món chưa ra) → bàn về trống ngay; thêm/xoá bàn offline-first, chặn xoá bàn có đơn mở.
+- **API:** `GET /api/v1/tables` (chỉ bàn active), `POST /api/v1/tables` (idempotent theo `legacyId`), `DELETE /api/v1/tables/:id` (xoá mềm) — OWNER/MANAGER. Đơn mở **không lên server**, chỉ đơn đã thanh toán đi qua `queue` có sẵn.
+- **Đã hoãn theo design đã duyệt** (không phải bug): gộp/chuyển/tách bàn, đặt trước, khoá bàn theo phiên, SSE/realtime nhiều máy, màn hình bếp. Xem non-goals trong `docs/superpowers/specs/2026-11-22-tables-design.md` §3.
 
-**Done khi:** thu ngân mở đơn từ sơ đồ bàn; trạng thái đồng bộ giữa hai máy; không mất đơn khi chuyển bàn.
+**Done khi:** thu ngân mở đơn từ sơ đồ bàn và theo dõi món đã ra; đổi bàn không mất dữ liệu; thanh toán xong bàn về trống; thêm/xoá bàn khi mất mạng vẫn hoạt động và đồng bộ khi có mạng lại. ✅ Đạt được; full test/lint/build/e2e xanh 22/11/2026.
 
 ### 8.5 Phase 3 — Đặt bàn (3–5 ngày)
 
@@ -753,7 +802,7 @@ Phase 1  Backend + auth (backend-only)
 | `Staff` | id, name, role, pinHash?, status, createdAt |
 | `Role` | id, name, permissions[] |
 | `Shift` | id, staffId, startedAt, endedAt, openingCash, closingCash, note |
-| `Table` | id, name, zone, seats, status, currentOrderId?, updatedAt |
+| `Table` | id, legacyId?, name, zone, seats, isActive, sortOrder, updatedAt | **[22/11]** `isActive` dùng để xoá mềm; **không có `status`/`currentOrderId`** — trạng thái suy ra từ đơn mở local |
 | `Reservation` | id, code, customerId?, name, phone, partySize, tableIds[], startAt, durationMin, status, note |
 | `Category` | id, name, sortOrder, active |
 | `MenuItem` | id, categoryId, name, description, price, costPrice?, image, available, sortOrder |
@@ -775,11 +824,10 @@ POST   /api/menu/items
 PATCH  /api/menu/items/:id
 DELETE /api/menu/items/:id
 
-GET    /api/tables
-PATCH  /api/tables/:id
-POST   /api/tables/:id/open-order
-POST   /api/tables/:id/merge
-POST   /api/tables/:id/move
+GET    /api/v1/tables                 # đã có: chỉ bàn isActive=true
+POST   /api/v1/tables                 # đã có: OWNER/MANAGER, idempotent theo legacyId
+DELETE /api/v1/tables/:id             # đã có: OWNER/MANAGER, xoá mềm (204 nếu đã xoá)
+# Chưa làm (ngoài phạm vi Phase 2): /open-order, /merge, /move, /PATCH trạng thái bàn
 
 GET    /api/reservations?date=
 POST   /api/reservations
@@ -825,6 +873,8 @@ POST   /api/shifts/:id/close
 - Xung đột bàn/đặt bàn: server authoritative + version/updatedAt; client hiện cảnh báo và tải lại.
 - Không tự động merge hai đơn cùng bàn nếu không có quy tắc rõ.
 - Khi có mạng lại: đẩy outbox theo thứ tự, báo lỗi từng mục, không chặn bán hàng.
+- **[22/11]** Thêm/xoá bàn dùng hàng đợi riêng `pendingTableOps` (`useCatalogStore`), flush tuần tự trong `refresh()` và khi `online`; xoá local ngay để không chặn thao tác. Server xoá mềm và idempotent theo `legacyId`.
+- **[22/11]** Đơn mở (`openOrders`) chỉ nằm local; chỉ đơn đã thanh toán mới có `clientId` và đi vào `queue` lên server.
 
 ### 9.5 Migration từ localStorage
 
@@ -944,6 +994,9 @@ npm run preview
 8. PWA: build + preview, cài, tắt mạng, mở lại.
 9. Dữ liệu hỏng: set localStorage sai shape → reload không trắng màn hình.
 10. Storage lỗi: chặn `setItem` → banner cảnh báo hiện.
+11. **[22/11]** Bàn: `#/tables` → bấm bàn trống → POS; thêm 2 món (bàn 🟡) → tick từng món / “Chọn tất cả” (bàn 🟢); đổi bàn rồi đổi lại → món và ghi chú không mất.
+12. **[22/11]** Thanh toán bàn còn món chưa ra → cảnh báo, bấm lần 2 mới thu tiền → bàn về 🔴 ngay; hoá đơn giữ `tableName`.
+13. **[22/11]** Offline: thêm bàn và xoá bàn trống khi mất mạng → có mạng lại → flush thành công; bàn có đơn mở thì nút xoá bị disable.
 
 ### 11.4 Kiểm tra in
 
@@ -967,7 +1020,7 @@ npm run preview
 2. **Mô hình triển khai:** một quán một server, hay SaaS nhiều quán?
 3. **Auth:** tài khoản nhân viên dùng email/PIN hay SSO? Có cần offline login?
 4. **Đồng bộ:** realtime bắt buộc hay chấp nhận polling 5–10 giây?
-5. **Phạm vi Bàn:** chỉ sơ đồ + trạng thái, hay cần gộp/tách/chuyển bàn ngay?
+5. ~~**Phạm vi Bàn:** chỉ sơ đồ + trạng thái, hay cần gộp/tách/chuyển bàn ngay?~~ ✅ Đã chốt 22/11: chỉ sơ đồ + 3 trạng thái + served + thanh toán; gộp/tách/chuyển hoãn (§8.4).
 6. **Đặt bàn:** có cần khách tự đặt online không, hay lễ tân nhập?
 7. **Thanh toán:** có cần QR ngân hàng/VietQR, máy quẹt thẻ, hay chỉ ghi nhận?
 8. **Máy in:** mẫu máy nào? ESC/POS qua USB/LAN/Bluetooth?
@@ -990,6 +1043,10 @@ npm run preview
 | 2026-11-19 | Review độc lập; sửa PWA config, persist hỏng, cảnh báo lưu trữ, touch target |
 | 2026-11-19 | 113/113 test, lint/build pass; mở PR #1 |
 | 2026-11-19 | Viết `PROJECT.md` làm tài liệu gốc cho các fork |
+| 2026-11-21 | Gia cố nền tảng: hash router, ErrorBoundary, sửa "Xoá đơn" (179/179 test) |
+| 2026-11-22 | Chốt thiết kế + plan module Bàn (option B: bàn sync server, đơn mở local) |
+| 2026-11-22 | Ship module Bàn: persist v3/`openOrders`, served theo món, thanh toán về trống, bàn offline-first + xoá mềm server, trang `#/tables` |
+| 2026-11-22 | Tài liệu + full verification: root 242/242, server 64 unit / 108 e2e, lint/build xanh |
 
 ---
 
@@ -1013,6 +1070,8 @@ npm run preview
 - [Plan triển khai frontend](docs/superpowers/plans/2026-11-18-restaurant-pos-frontend.md)
 - [Spec backend Phase 1](docs/superpowers/specs/2026-11-19-backend-foundation-spec.md)
 - [Plan backend Phase 1](docs/superpowers/plans/2026-11-19-backend-foundation-plan.md)
+- [Thiết kế module Bàn](docs/superpowers/specs/2026-11-22-tables-design.md)
+- [Plan module Bàn](docs/superpowers/plans/2026-11-22-tables.md)
 - [Ảnh desktop](docs/screenshots/pos-desktop.jpg)
 - [Ảnh 1024×768](docs/screenshots/pos-1024.jpg)
 - [Ảnh mobile](docs/screenshots/pos-mobile.jpg)
@@ -1024,7 +1083,7 @@ npm run preview
 ## Phụ lục C — Ghi chú cho người viết tiếp
 
 - Nếu bạn đang đọc file này để bắt đầu một fork: **đừng đọc toàn bộ `src/` trước**. Đọc §0, §3, §4, §5, §6, §10; sau đó mở đúng file trong bảng §0.4.
-- Nếu bạn định thêm một trang mới: xem `APP_PAGES` trong `src/config.ts`, `PlaceholderPage`, và cách `App.tsx` chọn trang. Hiện chưa có router; hãy thêm router trước khi có từ 3 trang thật trở lên.
+- Nếu bạn định thêm một trang mới: thêm route vào `src/app/router.tsx` (hash router), và thêm mục vào `APP_PAGES` trong `src/config.ts` nếu trang cần xuất hiện trên sidebar.
 - Nếu bạn định thêm dữ liệu mới: đừng nhét vào `usePOSStore` nếu đó là dữ liệu dùng chung giữa các module. Tạo domain type + service + store riêng.
 - Nếu bạn định sửa công thức tiền: viết test trước, cập nhật `calc.test.ts`, kiểm tra lại hoá đơn đã lưu (snapshot) không bị ảnh hưởng.
 - Nếu bạn định sửa CSS in: kiểm tra lại PDF 80mm 1 trang, tên món dài, ghi chú dài, in lại từ lịch sử.

@@ -33,6 +33,7 @@ const resetStore = () => {
     drafts: [],
     history: [],
     queue: [],
+    openOrders: {},
   })
 }
 
@@ -105,8 +106,8 @@ describe('GlobalSearch', () => {
 
   it('loads a draft and navigates to POS', async () => {
     const user = userEvent.setup()
-    usePOSStore.getState().addItem('ca-phe-nong')
     usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ca-phe-nong')
     usePOSStore.getState().saveDraft()
     const { input, onNavigate } = renderSearch()
 

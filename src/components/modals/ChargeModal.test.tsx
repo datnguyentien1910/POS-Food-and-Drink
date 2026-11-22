@@ -5,21 +5,32 @@ import { usePOSStore } from '../../store/usePOSStore'
 import { ToastProvider } from '../ui/Toast'
 import { ChargeModal } from './ChargeModal'
 
-function renderCharge() {
+function renderCharge(open = true) {
   const onClose = vi.fn()
   const onOpenReceipt = vi.fn()
 
-  render(
+  const view = render(
     <ToastProvider>
       <ChargeModal
-        open
+        open={open}
         onClose={onClose}
         onOpenReceipt={onOpenReceipt}
       />
     </ToastProvider>,
   )
 
-  return { onClose, onOpenReceipt }
+  const setOpen = (next: boolean) =>
+    view.rerender(
+      <ToastProvider>
+        <ChargeModal
+          open={next}
+          onClose={onClose}
+          onOpenReceipt={onOpenReceipt}
+        />
+      </ToastProvider>,
+    )
+
+  return { ...view, onClose, onOpenReceipt, setOpen }
 }
 
 const resetStore = () => {
@@ -32,6 +43,7 @@ const resetStore = () => {
     drafts: [],
     history: [],
     queue: [],
+    openOrders: {},
   })
 }
 
@@ -137,5 +149,88 @@ describe('ChargeModal', () => {
     await user.click(screen.getByRole('button', { name: 'Đơn mới' }))
 
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks before paying a table with unserved items', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.setState({
+      openOrders: {
+        'ban-5': {
+          cart: [],
+          discount: { type: 'amount' as const, value: 0 },
+          note: '',
+          updatedAt: Date.now(),
+        },
+      },
+    })
+    renderCharge()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Xác nhận thanh toán' }),
+    )
+
+    expect(usePOSStore.getState().history).toHaveLength(0)
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Còn 1 món chưa mang ra — vẫn thanh toán?',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Vẫn thanh toán' }),
+    )
+
+    expect(usePOSStore.getState().history).toHaveLength(1)
+    expect(usePOSStore.getState().cart).toEqual([])
+    expect(usePOSStore.getState().openOrders).toEqual({})
+  })
+
+  it('pays a fully served table immediately', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    usePOSStore.getState().setAllServed()
+    renderCharge()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Xác nhận thanh toán' }),
+    )
+
+    expect(usePOSStore.getState().history).toHaveLength(1)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('pays a takeaway order immediately', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().addItem('ga-nuong')
+    renderCharge()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Xác nhận thanh toán' }),
+    )
+
+    expect(usePOSStore.getState().history).toHaveLength(1)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('resets the warning when the modal is closed and reopened', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    const { setOpen } = renderCharge()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Xác nhận thanh toán' }),
+    )
+    expect(screen.getByRole('status')).toBeInTheDocument()
+
+    setOpen(false)
+    setOpen(true)
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: 'Xác nhận thanh toán' }),
+    )
+    expect(usePOSStore.getState().history).toHaveLength(0)
+    expect(screen.getByRole('status')).toBeInTheDocument()
   })
 })
