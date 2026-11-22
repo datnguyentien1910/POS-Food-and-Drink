@@ -642,6 +642,7 @@ export const usePOSStore = create<POSState>()(
           note: state.note,
           createdAt: now,
           cashier: authUser?.name ?? RESTAURANT.cashier,
+          status: 'completed',
           cashierId: authUser?.id ?? '',
           ...(method === 'cash' && received !== undefined
             ? { received, change }

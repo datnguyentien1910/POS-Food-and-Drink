@@ -178,6 +178,7 @@ describe('completeOrder', () => {
       change: 49880,
       note: 'Mang ra sau',
       cashier: 'Thu ngân',
+      status: 'completed',
     })
     expect(order!.items).toEqual([
       {

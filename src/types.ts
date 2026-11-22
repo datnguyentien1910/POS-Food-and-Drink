@@ -131,8 +131,8 @@ export interface OrderRecord {
   note: string
   createdAt: number
   cashier: string
-  /** Business status; absent on legacy orders created before v4. */
-  status?: OrderStatus
+  /** Business status; legacy snapshots receive one during the v4 migration. */
+  status: OrderStatus
   /** Integration bookkeeping; absent on legacy orders created before sync. */
   clientId?: string
   serverId?: string

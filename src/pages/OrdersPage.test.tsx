@@ -41,6 +41,7 @@ const makeOrder = (
   note: '',
   createdAt,
   cashier: 'Thu ngân',
+  status: 'completed',
   syncState: 'synced',
   provisionalCode: false,
   cashierId: 'u1',
