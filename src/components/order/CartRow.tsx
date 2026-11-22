@@ -51,7 +51,7 @@ export function CartRow({
               <h3 className="truncate text-xs font-semibold text-ink">
                 {item.name}
               </h3>
-              {served ? (
+              {served && canToggle ? (
                 <Badge tone="positive" className="shrink-0">
                   Đã ra
                 </Badge>

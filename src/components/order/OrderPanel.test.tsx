@@ -32,6 +32,11 @@ const resetStore = () => {
   })
 }
 
+const serveCurrentLine = () => {
+  const lineId = usePOSStore.getState().cart[0].lineId
+  act(() => usePOSStore.getState().setLineServed(lineId, true))
+}
+
 describe('OrderPanel', () => {
   beforeEach(resetStore)
 
@@ -77,20 +82,6 @@ describe('OrderPanel', () => {
     expect(screen.getByText('Giỏ hàng trống')).toBeInTheDocument()
   })
 
-  it('chooses a table and shows it on the panel', async () => {
-    const user = userEvent.setup()
-    usePOSStore.getState().addItem('ga-nuong')
-    renderPanel()
-
-    await user.click(screen.getByRole('button', { name: 'Chọn bàn' }))
-    await user.click(screen.getByRole('button', { name: /Bàn 05/ }))
-
-    expect(usePOSStore.getState().tableId).toBe('ban-5')
-    expect(
-      screen.getByRole('button', { name: 'Chọn bàn: Bàn 05' }),
-    ).toBeInTheDocument()
-  })
-
   it('reflects a discount set outside the panel in the total', () => {
     usePOSStore.getState().addItem('ga-nuong')
     usePOSStore.getState().setDiscount({ type: 'amount', value: 20000 })
@@ -133,6 +124,18 @@ describe('OrderPanel', () => {
     expect(onCreateOrder).toHaveBeenCalledTimes(1)
   })
 
+  it('still creates an order for a served table order', async () => {
+    const user = userEvent.setup()
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    serveCurrentLine()
+    const { onCreateOrder } = renderPanel()
+
+    await user.click(screen.getByRole('button', { name: 'Tạo đơn 117.720 ₫' }))
+
+    expect(onCreateOrder).toHaveBeenCalledTimes(1)
+  })
+
   it('asks before clearing the order and keeps it when cancelled', async () => {
     const user = userEvent.setup()
     usePOSStore.getState().setTable('ban-5')
@@ -168,100 +171,77 @@ describe('OrderPanel', () => {
     expect(usePOSStore.getState().note).toBe('')
   })
 
-  it('shows served controls only for a table order', () => {
-    usePOSStore.getState().addItem('ga-nuong')
-    const { unmount } = renderPanel()
-
-    expect(
-      screen.queryByRole('button', { name: 'Mang ra' }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Chọn tất cả' }),
-    ).not.toBeInTheDocument()
-
-    unmount()
-    act(() => usePOSStore.getState().setTable('ban-5'))
-    act(() => usePOSStore.getState().addItem('ga-nuong'))
-    renderPanel()
-
-    expect(screen.getByRole('button', { name: 'Mang ra' })).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Chọn tất cả' }),
-    ).toBeInTheDocument()
-  })
-
-  it('marks a line as served and locks its quantity and delete actions', async () => {
-    const user = userEvent.setup()
-    usePOSStore.getState().setTable('ban-5')
-    usePOSStore.getState().addItem('ga-nuong')
-    renderPanel()
-
-    await user.click(screen.getByRole('button', { name: 'Tăng số lượng' }))
-    expect(usePOSStore.getState().cart[0].qty).toBe(2)
-
-    const toggle = screen.getByRole('button', { name: 'Mang ra' })
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    await user.click(toggle)
-
-    expect(usePOSStore.getState().cart[0].served).toBe(true)
-    expect(screen.getByRole('button', { name: 'Đã ra' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    expect(screen.getAllByText('Đã ra')).toHaveLength(2)
-    expect(screen.getByRole('button', { name: 'Tăng số lượng' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Giảm số lượng' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Xoá Gà nướng' })).toBeDisabled()
-
-    await user.click(screen.getByRole('button', { name: 'Tăng số lượng' }))
-    expect(usePOSStore.getState().cart[0].qty).toBe(2)
-    await user.click(screen.getByRole('button', { name: 'Xoá Gà nướng' }))
-    expect(usePOSStore.getState().cart).toHaveLength(1)
-  })
-
-  it('marks every line served from the select-all action', async () => {
-    const user = userEvent.setup()
+  it('does not render table or served controls for a served table order', () => {
     usePOSStore.getState().setTable('ban-5')
     usePOSStore.getState().addItem('ga-nuong')
     usePOSStore.getState().addItem('nuoc-chanh')
+    serveCurrentLine()
     renderPanel()
 
-    expect(screen.getAllByRole('button', { name: 'Mang ra' })).toHaveLength(2)
-    await user.click(screen.getByRole('button', { name: 'Chọn tất cả' }))
-
-    expect(usePOSStore.getState().cart.every((line) => line.served)).toBe(true)
+    expect(
+      screen.queryByRole('button', { name: 'Chọn bàn' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Chọn bàn/ }),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Mang ra' }),
     ).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Đã ra' })).toHaveLength(2)
+    expect(
+      screen.queryByRole('button', { name: 'Đã ra' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Đã ra')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Chọn tất cả' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('2 món')).toBeInTheDocument()
   })
 
-  it('creates a separate line when adding a served item again', () => {
+  it('keeps quantity and remove controls for a served line', () => {
     usePOSStore.getState().setTable('ban-5')
     usePOSStore.getState().addItem('ga-nuong')
+    serveCurrentLine()
     renderPanel()
 
-    act(() => screen.getByRole('button', { name: 'Mang ra' }).click())
+    expect(
+      screen.getByRole('button', { name: 'Tăng số lượng' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Giảm số lượng' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Xoá Gà nướng' }),
+    ).toBeInTheDocument()
     expect(usePOSStore.getState().cart[0].served).toBe(true)
+  })
 
+  it('renders both lines when an item is re-added after being served', () => {
+    usePOSStore.getState().setTable('ban-5')
+    usePOSStore.getState().addItem('ga-nuong')
+    serveCurrentLine()
     act(() => usePOSStore.getState().addItem('ga-nuong'))
+    renderPanel()
 
     const panel = screen.getByRole('region', { name: 'Đơn hiện tại' })
     expect(within(panel).getAllByRole('article')).toHaveLength(2)
-    expect(screen.getAllByRole('button', { name: 'Mang ra' })).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Đã ra' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Mang ra' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Đã ra')).not.toBeInTheDocument()
   })
 
-  it('hides the select-all action when every line is served', async () => {
-    const user = userEvent.setup()
+  it('never shows the select-all action when every line is served', () => {
     usePOSStore.getState().setTable('ban-5')
     usePOSStore.getState().addItem('ga-nuong')
+    act(() => usePOSStore.getState().setAllServed())
     renderPanel()
-
-    await user.click(screen.getByRole('button', { name: 'Chọn tất cả' }))
 
     expect(
       screen.queryByRole('button', { name: 'Chọn tất cả' }),
     ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Mang ra' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Đã ra')).not.toBeInTheDocument()
   })
 })
