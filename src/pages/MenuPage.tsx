@@ -13,6 +13,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { useToast } from '../components/ui/toast-context'
 import { ConfirmModal } from '../components/modals/ConfirmModal'
 import { MenuItemFormModal } from '../components/menu-management/MenuItemFormModal'
+import { isVirtualCategory } from '../lib/category'
 import { formatVND } from '../lib/format'
 import { resolveMenuImage } from '../lib/menu-image'
 import { useCatalogStore } from '../store/useCatalogStore'
@@ -70,11 +71,13 @@ export function MenuPage() {
 
   const groups = useMemo(() => {
     const order = new Map(categories.map((category, index) => [category.id, index]))
-    return [...menu].sort(
-      (a, b) =>
-        (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
-        (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-    )
+    return menu
+      .filter((category) => !isVirtualCategory(category.name))
+      .sort(
+        (a, b) =>
+          (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+          (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+      )
   }, [categories, menu])
 
   const itemCount = groups.reduce((sum, group) => sum + group.items.length, 0)
