@@ -51,6 +51,9 @@ export function queryMenu(
     sorted.sort((a, b) => a.price - b.price)
   } else if (options.sort === 'price-desc') {
     sorted.sort((a, b) => b.price - a.price)
+  } else {
+    // Stable sort keeps the catalog order among dishes with the same flag.
+    sorted.sort((a, b) => Number(Boolean(b.popular)) - Number(Boolean(a.popular)))
   }
 
   const visibleCount = Math.max(0, options.visibleCount)

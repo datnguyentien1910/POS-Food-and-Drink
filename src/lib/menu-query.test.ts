@@ -68,6 +68,48 @@ describe('queryMenu', () => {
     expect(descriptionMatch.items.length).toBeGreaterThan(0)
   })
 
+  it('puts popular dishes first in the default order', () => {
+    const result = queryMenu(MENU_ITEMS, {
+      ...defaults,
+      visibleCount: 20,
+    })
+    const popularCount = MENU_ITEMS.filter((item) => item.popular).length
+
+    expect(result.items.slice(0, popularCount).every((item) => item.popular)).toBe(true)
+    expect(result.items.slice(popularCount).some((item) => item.popular)).toBe(false)
+  })
+
+  it('puts popular dishes first within a category tab', () => {
+    const result = queryMenu(MENU_ITEMS, {
+      ...defaults,
+      category: 'drinks',
+      visibleCount: 20,
+    })
+
+    expect(result.items.slice(0, 2).map((item) => item.name).sort()).toEqual([
+      'Cà phê nóng',
+      'Trà đào',
+    ])
+  })
+
+  it('does not pin popular dishes when sorting by price', () => {
+    const asc = queryMenu(MENU_ITEMS, {
+      ...defaults,
+      sort: 'price-asc',
+      visibleCount: 20,
+    })
+    const desc = queryMenu(MENU_ITEMS, {
+      ...defaults,
+      sort: 'price-desc',
+      visibleCount: 20,
+    })
+    const ascPrices = asc.items.map((item) => item.price)
+    const descPrices = desc.items.map((item) => item.price)
+
+    expect(ascPrices).toEqual([...ascPrices].sort((a, b) => a - b))
+    expect(descPrices).toEqual([...descPrices].sort((a, b) => b - a))
+  })
+
   it('sorts by price without mutating the source list', () => {
     const source = [...MENU_ITEMS]
     const asc = queryMenu(source, {
