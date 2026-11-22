@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { PageId } from '../../config'
 import { cx } from '../../lib/cx'
 import { useCatalogStore } from '../../store/useCatalogStore'
+import { startTableSync } from '../../sync/table-sync'
 import { startSync } from '../../sync/worker'
 import { OfflineBanner } from '../sync/OfflineBanner'
 import { Sidebar } from './Sidebar'
@@ -34,6 +35,8 @@ export function AppShell({
     void useCatalogStore.getState().refresh()
     startSync()
   }, [])
+
+  useEffect(() => startTableSync(), [])
 
   return (
     <div className="flex min-h-dvh bg-bg text-ink">
