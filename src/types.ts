@@ -34,6 +34,9 @@ export interface TableOption {
   zone?: string | null
 }
 
+/** Derived table status: no open lines, some lines pending, or all served. */
+export type TableState = 'empty' | 'pending' | 'served'
+
 export interface CartLine {
   lineId: string
   menuItemId: string
@@ -42,6 +45,8 @@ export interface CartLine {
   unitPrice?: number
   /** Display name snapshot captured when the line was added. */
   name?: string
+  /** `true` once the line has been taken to the table; it can no longer change. */
+  served?: boolean
 }
 
 export interface Discount {
@@ -56,6 +61,14 @@ export interface Draft {
   discount: Discount
   note: string
   createdAt: number
+}
+
+/** A suspended order for a table that is not currently active. */
+export interface OpenOrderSnapshot {
+  cart: CartLine[]
+  discount: Discount
+  note: string
+  updatedAt: number
 }
 
 export type PaymentMethod = 'cash' | 'transfer' | 'card'

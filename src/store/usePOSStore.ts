@@ -12,6 +12,7 @@ import type {
   Discount,
   Draft,
   LocalOrder,
+  OpenOrderSnapshot,
   OrderLineSnapshot,
   OrderRecord,
   PaymentMethod,
@@ -37,9 +38,12 @@ interface PersistedPOS {
   drafts: Draft[]
   history: LocalOrder[]
   queue: SyncItem[]
+  openOrders: Record<string, OpenOrderSnapshot>
 }
 
-type PersistedPOSv1 = Omit<PersistedPOS, 'history' | 'queue'> & {
+type PersistedPOSv2 = Omit<PersistedPOS, 'openOrders'>
+
+type PersistedPOSv1 = Omit<PersistedPOS, 'history' | 'queue' | 'openOrders'> & {
   history: OrderRecord[]
 }
 
@@ -77,7 +81,10 @@ interface POSState extends PersistedPOS {
   voidLocalOrder: (clientId: string, reason: string) => void
 }
 
-const emptyOrder = (): Omit<PersistedPOS, 'drafts' | 'history' | 'queue'> => ({
+const emptyOrder = (): Omit<
+  PersistedPOS,
+  'drafts' | 'history' | 'queue' | 'openOrders'
+> => ({
   cart: [],
   tableId: null,
   discount: { ...EMPTY_DISCOUNT },
@@ -97,7 +104,8 @@ const isCartLine = (value: unknown): value is CartLine =>
   isFiniteNumber(value.qty) &&
   value.qty > 0 &&
   (value.unitPrice === undefined || isFiniteNumber(value.unitPrice)) &&
-  (value.name === undefined || typeof value.name === 'string')
+  (value.name === undefined || typeof value.name === 'string') &&
+  (value.served === undefined || typeof value.served === 'boolean')
 
 const isDiscount = (value: unknown): value is Discount =>
   isRecord(value) &&
@@ -114,6 +122,21 @@ const isDraft = (value: unknown): value is Draft =>
   isDiscount(value.discount) &&
   typeof value.note === 'string' &&
   isFiniteNumber(value.createdAt)
+
+const isOpenOrderSnapshot = (value: unknown): value is OpenOrderSnapshot =>
+  isRecord(value) &&
+  Array.isArray(value.cart) &&
+  value.cart.every(isCartLine) &&
+  isDiscount(value.discount) &&
+  typeof value.note === 'string' &&
+  isFiniteNumber(value.updatedAt)
+
+const isOpenOrders = (
+  value: unknown,
+): value is Record<string, OpenOrderSnapshot> =>
+  isRecord(value) &&
+  !Array.isArray(value) &&
+  Object.values(value).every(isOpenOrderSnapshot)
 
 const isOrderLine = (value: unknown): value is OrderLineSnapshot =>
   isRecord(value) &&
@@ -155,7 +178,7 @@ const isQueueItem = (value: unknown): value is SyncItem =>
   isFiniteNumber(value.nextAttemptAt) &&
   isFiniteNumber(value.createdAt)
 
-const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+const isPersistedPOSv2 = (value: unknown): value is PersistedPOSv2 =>
   isRecord(value) &&
   Array.isArray(value.cart) &&
   value.cart.every(isCartLine) &&
@@ -168,6 +191,12 @@ const isPersistedPOS = (value: unknown): value is PersistedPOS =>
   value.history.every(isOrder) &&
   Array.isArray(value.queue) &&
   value.queue.every(isQueueItem)
+
+const hasValidOpenOrders = (value: unknown): boolean =>
+  isRecord(value) && isOpenOrders(value.openOrders)
+
+const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+  isPersistedPOSv2(value) && hasValidOpenOrders(value)
 
 /** Upgrades a v1 snapshot: old orders become read-only `legacy` rows. */
 function migrateV1(from: PersistedPOSv1): PersistedPOS {
@@ -199,6 +228,7 @@ function migrateV1(from: PersistedPOSv1): PersistedPOS {
     drafts: from.drafts,
     history,
     queue: [],
+    openOrders: {},
   }
 }
 
@@ -213,8 +243,15 @@ const safeStorage: PersistStorage<PersistedPOS> = {
       const parsed = JSON.parse(raw) as unknown
       if (!isRecord(parsed) || !isRecord(parsed.state)) return null
 
-      if (parsed.version === 2 && isPersistedPOS(parsed.state)) {
-        return { state: parsed.state, version: 2 }
+      if (parsed.version === 3 && isPersistedPOS(parsed.state)) {
+        return { state: parsed.state, version: 3 }
+      }
+
+      if (parsed.version === 2 && isPersistedPOSv2(parsed.state)) {
+        return {
+          state: { ...parsed.state, openOrders: {} },
+          version: 3,
+        }
       }
 
       if (parsed.version === 1 && isRecord(parsed.state)) {
@@ -232,7 +269,7 @@ const safeStorage: PersistStorage<PersistedPOS> = {
         ) {
           return {
             state: migrateV1(legacy as unknown as PersistedPOSv1),
-            version: 2,
+            version: 3,
           }
         }
       }
@@ -301,6 +338,7 @@ export const usePOSStore = create<POSState>()(
       drafts: [],
       history: [],
       queue: [],
+      openOrders: {},
       storageError: false,
 
       addItem: (menuItemId) => {
@@ -667,7 +705,7 @@ export const usePOSStore = create<POSState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 2,
+      version: 3,
       storage: safeStorage,
       partialize: (state): PersistedPOS => ({
         cart: state.cart,
@@ -677,6 +715,7 @@ export const usePOSStore = create<POSState>()(
         drafts: state.drafts,
         history: state.history,
         queue: state.queue,
+        openOrders: state.openOrders,
       }),
     },
   ),

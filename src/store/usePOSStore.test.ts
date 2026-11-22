@@ -17,6 +17,7 @@ function resetStore() {
     drafts: [],
     history: [],
     queue: [],
+    openOrders: {},
     storageError: false,
   })
 }
@@ -299,6 +300,123 @@ describe('persistence', () => {
 
     expect(usePOSStore.getState().cart).toHaveLength(1)
     expect(usePOSStore.getState().cart[0].menuItemId).toBe(chicken.id)
+  })
+
+  it('upgrades a v2 snapshot to v3 with empty open orders', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+        },
+        version: 2,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().openOrders).toEqual({})
+
+    usePOSStore.getState().addItem(chicken.id)
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(parsed.version).toBe(3)
+    expect(parsed.state.openOrders).toEqual({})
+  })
+
+  it('restores open orders from a v3 snapshot', async () => {
+    const snapshot = {
+      cart: [
+        {
+          lineId: 'l1',
+          menuItemId: chicken.id,
+          qty: 2,
+          unitPrice: chicken.price,
+          name: chicken.name,
+          served: false,
+        },
+      ],
+      discount: { type: 'percent', value: 10 },
+      note: 'Ít đá',
+      updatedAt: 1767225600000,
+    }
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+          openOrders: { 'ban-5': snapshot },
+        },
+        version: 3,
+      }),
+    )
+
+    await usePOSStore.persist.rehydrate()
+
+    expect(usePOSStore.getState().openOrders).toEqual({ 'ban-5': snapshot })
+  })
+
+  it('drops a corrupt openOrders map', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          cart: [],
+          tableId: null,
+          discount: { type: 'amount', value: 0 },
+          note: '',
+          drafts: [],
+          history: [],
+          queue: [],
+          openOrders: 'bad',
+        },
+        version: 3,
+      }),
+    )
+
+    await expect(usePOSStore.persist.rehydrate()).resolves.not.toThrow()
+    expect(usePOSStore.getState().openOrders).toEqual({})
+  })
+
+  it('persists open orders', () => {
+    usePOSStore.setState({
+      openOrders: {
+        'ban-5': {
+          cart: [
+            {
+              lineId: 'l1',
+              menuItemId: chicken.id,
+              qty: 1,
+              unitPrice: chicken.price,
+              name: chicken.name,
+              served: false,
+            },
+          ],
+          discount: { type: 'amount', value: 0 },
+          note: 'Mang ra sau',
+          updatedAt: 1767225600000,
+        },
+      },
+    })
+
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+    expect(parsed.version).toBe(3)
+    expect(parsed.state.openOrders['ban-5']).toMatchObject({
+      note: 'Mang ra sau',
+      cart: [{ menuItemId: chicken.id, qty: 1, served: false }],
+    })
   })
 
   it('flags storage failures and clears the flag after a successful write', () => {
