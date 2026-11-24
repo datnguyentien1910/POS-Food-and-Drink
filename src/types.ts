@@ -103,11 +103,16 @@ export interface OpenOrderSnapshot {
 
 export type PaymentMethod = 'cash' | 'transfer' | 'card'
 
+/** Business status of an order, independent of its sync state. */
+export type OrderStatus = 'pending_payment' | 'completed' | 'cancelled'
+
 export interface OrderLineSnapshot {
   menuItemId: string
   name: string
   unitPrice: number
   qty: number
+  /** Absent on legacy orders; missing means the line has not been served. */
+  served?: boolean
 }
 
 export interface OrderRecord {
@@ -126,6 +131,8 @@ export interface OrderRecord {
   note: string
   createdAt: number
   cashier: string
+  /** Business status; legacy snapshots receive one during the v4 migration. */
+  status: OrderStatus
   /** Integration bookkeeping; absent on legacy orders created before sync. */
   clientId?: string
   serverId?: string
@@ -201,6 +208,10 @@ export interface LocalOrder extends OrderRecord {
   provisionalCode: boolean
   cashierId: string
   serverId?: string
+  /** Kept on local pending orders so `resumePendingOrder` can restore the discount. */
+  discount?: Discount
+  /** Last time a local order was saved, paid or cancelled. */
+  updatedAt?: number
 }
 
 /** Persisted store shape after the v2 migration. */

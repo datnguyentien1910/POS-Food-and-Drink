@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthUser, SessionResponse } from '../api/types'
@@ -76,6 +76,41 @@ describe('hash router', () => {
     expect(usePOSStore.getState().cart).toHaveLength(1)
     expect(usePOSStore.getState().tableId).toBe('ban-5')
     expect(usePOSStore.getState().note).toBe('Ít đá')
+  })
+
+  it('mở popup đơn hàng từ nút Tạo đơn', async () => {
+    meMock.mockResolvedValue(session())
+    window.location.hash = '#/pos'
+    usePOSStore.getState().addItem('ga-nuong')
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('button', { name: 'POS' })
+    await user.click(await screen.findByRole('button', { name: /Tạo đơn/ }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent('Lưu chờ thanh toán')
+    expect(
+      within(dialog).getByRole('button', { name: 'Chọn bàn' }),
+    ).toBeInTheDocument()
+  })
+
+  it('giữ luồng hoá đơn sau khi thanh toán trong popup', async () => {
+    meMock.mockResolvedValue(session())
+    window.location.hash = '#/pos'
+    usePOSStore.getState().addItem('ga-nuong')
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('button', { name: 'POS' })
+    await user.click(await screen.findByRole('button', { name: /Tạo đơn/ }))
+    await user.click(screen.getByRole('button', { name: 'Thanh toán' }))
+    await user.click(screen.getByRole('button', { name: /Xem hoá đơn/ }))
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('Hoá đơn')
+    expect(
+      screen.queryByRole('button', { name: 'Lưu chờ thanh toán' }),
+    ).not.toBeInTheDocument()
   })
 
   it('renders the real tables page at #/tables', async () => {

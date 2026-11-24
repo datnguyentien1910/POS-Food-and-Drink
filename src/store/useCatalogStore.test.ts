@@ -405,6 +405,43 @@ describe('useCatalogStore table operations', () => {
     expect(tables.find((t) => t.id === 'ban-pending')?.serverId).toBeUndefined()
   })
 
+  it('refresh keeps newly loaded menu items when the tables request fails', async () => {
+    getMenuMock.mockResolvedValue([
+      {
+        id: 'cat-drinks',
+        name: 'drinks',
+        sortOrder: 0,
+        items: [
+          {
+            id: 'item-matcha',
+            categoryId: 'cat-drinks',
+            legacyId: null,
+            name: 'Matcha latte',
+            description: null,
+            price: 32000,
+            imageKey: null,
+            imageUrl: null,
+            available: true,
+            popular: false,
+            sortOrder: 0,
+          },
+        ],
+      },
+    ])
+    getTablesMock.mockRejectedValue(
+      new ApiError(500, 'INTERNAL_ERROR', 'Đã xảy ra lỗi hệ thống'),
+    )
+
+    await useCatalogStore.getState().refresh()
+
+    const { items, tables, source, error, loading } = useCatalogStore.getState()
+    expect(items.map((item) => item.name)).toEqual(['Matcha latte'])
+    expect(tables).toEqual([])
+    expect(source).toBe('api')
+    expect(loading).toBe(false)
+    expect(error).toBeTruthy()
+  })
+
   it('strips invalid legacy server ids when rehydrating', async () => {
     localStorage.setItem(
       STORAGE_KEY,

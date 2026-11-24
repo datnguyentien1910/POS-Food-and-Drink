@@ -1,11 +1,9 @@
+import { isVirtualCategory } from './category'
 import { resolveMenuImage } from './menu-image'
 import type { ServerMenuCategory, ServerTable } from '../api/types'
 import type { CategoryId, MenuItem, TableOption } from '../types'
 
 const CATEGORY_IDS: CategoryId[] = ['drinks', 'starters', 'mains', 'desserts']
-
-/** Categories the server seeds but the UI derives differently. */
-const IGNORED_CATEGORIES = new Set(['all', 'popular'])
 
 function isCategoryId(value: string): value is CategoryId {
   return (CATEGORY_IDS as string[]).includes(value)
@@ -16,7 +14,7 @@ export function mapMenuItems(categories: ServerMenuCategory[]): MenuItem[] {
   const items: MenuItem[] = []
 
   for (const category of categories) {
-    if (IGNORED_CATEGORIES.has(category.name)) continue
+    if (isVirtualCategory(category.name)) continue
     const categoryId: CategoryId = isCategoryId(category.name)
       ? category.name
       : 'mains'

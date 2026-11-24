@@ -2,16 +2,17 @@ import { Armchair, Circle, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ConfirmModal } from '../components/modals/ConfirmModal'
+import { OrderModal } from '../components/order/OrderModal'
 import { TableFormModal } from '../components/tables/TableFormModal'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useToast } from '../components/ui/toast-context'
-import { tableLines, tableState } from '../lib/table-state'
+import { pendingOrderForTable, tableServingState } from '../lib/table-state'
 import { useAuthStore } from '../store/useAuthStore'
 import { useCatalogStore } from '../store/useCatalogStore'
 import { usePOSStore } from '../store/usePOSStore'
-import type { CartLine, TableOption, TableState } from '../types'
+import type { OrderRecord, TableOption, TableState } from '../types'
 
 type StatusTone = 'negative' | 'gold' | 'positive'
 
@@ -25,7 +26,7 @@ const STATUS: Record<TableState, { label: string; tone: StatusTone }> = {
 interface TableCardProps {
   table: TableOption
   state: TableState
-  lines: CartLine[]
+  itemCount: number
   busy: boolean
   canEdit: boolean
   onOpen: () => void
@@ -35,14 +36,13 @@ interface TableCardProps {
 function TableCard({
   table,
   state,
-  lines,
+  itemCount,
   busy,
   canEdit,
   onOpen,
   onDelete,
 }: TableCardProps) {
   const status = STATUS[state]
-  const dishCount = lines.reduce((total, line) => total + line.qty, 0)
 
   return (
     <article className="relative" data-state={state}>
@@ -72,9 +72,9 @@ function TableCard({
           {table.syncState === 'pending' ? (
             <Badge tone="gold">Chờ đồng bộ</Badge>
           ) : null}
-          {lines.length > 0 ? (
+          {itemCount > 0 ? (
             <span className="text-[11px] font-semibold text-muted">
-              {dishCount} món
+              {itemCount} món
             </span>
           ) : null}
         </span>
@@ -96,11 +96,20 @@ function TableCard({
   )
 }
 
-export function TablesPage() {
+interface TablesPageProps {
+  onOpenReceipt?: (order: OrderRecord) => void
+}
+
+export function TablesPage({ onOpenReceipt }: TablesPageProps) {
   const tables = useCatalogStore((state) => state.tables)
   const cart = usePOSStore((state) => state.cart)
   const tableId = usePOSStore((state) => state.tableId)
   const openOrders = usePOSStore((state) => state.openOrders)
+  const history = usePOSStore((state) => state.history)
+  const editingPendingOrderId = usePOSStore(
+    (state) => state.editingPendingOrderId,
+  )
+  const assignTable = usePOSStore((state) => state.assignTable)
   const switchTable = usePOSStore((state) => state.switchTable)
   const isTableBusy = usePOSStore((state) => state.isTableBusy)
   const role = useAuthStore((state) => state.user?.role)
@@ -110,6 +119,7 @@ export function TablesPage() {
   const canEdit = role === 'OWNER' || role === 'MANAGER'
   const [editorOpen, setEditorOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<TableOption | null>(null)
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
 
   // First-seen zone order is preserved; tables keep their existing order inside a zone.
   const groups = useMemo(() => {
@@ -126,8 +136,33 @@ export function TablesPage() {
     return grouped
   }, [tables])
 
-  const openTable = (id: string) => {
-    switchTable(id)
+  const openTable = (target: TableOption) => {
+    // A live (or suspended) cart belongs in POS: keep the existing switch,
+    // which stashes the current cart before loading the target table's own.
+    const hasOpenCart =
+      tableId === target.id
+        ? cart.length > 0
+        : Boolean(openOrders[target.id]?.cart.length)
+    if (hasOpenCart) {
+      switchTable(target.id)
+      navigate('/pos')
+      return
+    }
+
+    // Pending orders stay read-only until an explicit action in the shared
+    // modal; merely opening the table must not resume them.
+    const pending = pendingOrderForTable(
+      history,
+      target.id,
+      editingPendingOrderId,
+    )
+    if (pending) {
+      setPendingOrderId(pending.id)
+      return
+    }
+
+    // Nothing is open on this table: selecting it must not stash an empty cart.
+    assignTable(target.id)
     navigate('/pos')
   }
 
@@ -197,16 +232,23 @@ export function TablesPage() {
               </header>
               <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
                 {group.tables.map((table) => {
-                  const lines = tableLines(table.id, tableId, cart, openOrders)
+                  const { state, itemCount } = tableServingState(
+                    table.id,
+                    tableId,
+                    cart,
+                    openOrders,
+                    history,
+                    editingPendingOrderId,
+                  )
                   return (
                     <TableCard
                       key={table.id}
                       table={table}
-                      state={tableState(lines)}
-                      lines={lines}
+                      state={state}
+                      itemCount={itemCount}
                       busy={isTableBusy(table.id)}
                       canEdit={canEdit}
-                      onOpen={() => openTable(table.id)}
+                      onOpen={() => openTable(table)}
                       onDelete={() => setPendingDelete(table)}
                     />
                   )
@@ -219,6 +261,19 @@ export function TablesPage() {
 
       {editorOpen ? (
         <TableFormModal open onClose={() => setEditorOpen(false)} />
+      ) : null}
+
+      {pendingOrderId !== null ? (
+        <OrderModal
+          open
+          orderId={pendingOrderId}
+          onClose={() => setPendingOrderId(null)}
+          onAddItems={() => navigate('/pos')}
+          onOpenReceipt={(paid) => {
+            onOpenReceipt?.(paid)
+            setPendingOrderId(null)
+          }}
+        />
       ) : null}
 
       <ConfirmModal

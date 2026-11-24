@@ -16,6 +16,7 @@ import type {
   OpenOrderSnapshot,
   OrderLineSnapshot,
   OrderRecord,
+  OrderStatus,
   PaymentMethod,
   ServerPaymentMethod,
   SyncError,
@@ -40,11 +41,14 @@ interface PersistedPOS {
   history: LocalOrder[]
   queue: SyncItem[]
   openOrders: Record<string, OpenOrderSnapshot>
+  editingPendingOrderId: string | null
 }
 
-type PersistedPOSv2 = Omit<PersistedPOS, 'openOrders'>
+type PersistedPOSv3 = Omit<PersistedPOS, 'editingPendingOrderId'>
 
-type PersistedPOSv1 = Omit<PersistedPOS, 'history' | 'queue' | 'openOrders'> & {
+type PersistedPOSv2 = Omit<PersistedPOSv3, 'openOrders'>
+
+type PersistedPOSv1 = Omit<PersistedPOSv2, 'history' | 'queue'> & {
   history: OrderRecord[]
 }
 
@@ -64,6 +68,20 @@ interface POSState extends PersistedPOS {
   resetOrder: () => void
   setTable: (tableId: string | null) => void
   switchTable: (tableId: string | null) => void
+  assignTable: (tableId: string | null) => void
+  savePendingOrder: () => LocalOrder | null
+  resumePendingOrder: (orderId: string) => void
+  payPendingOrder: (orderId: string, input: CompleteOrderInput) => LocalOrder | null
+  cancelPendingOrder: (orderId: string) => void
+  setPendingOrderTable: (orderId: string, tableId: string | null) => void
+  setPendingLineServed: (
+    orderId: string,
+    lineId: string,
+    served: boolean,
+  ) => void
+  setPendingLineQty: (orderId: string, lineId: string, qty: number) => void
+  removePendingLine: (orderId: string, lineId: string) => void
+  setAllPendingServed: (orderId: string) => void
   setLineServed: (lineId: string, served: boolean) => void
   setAllServed: () => void
   isTableBusy: (tableId: string) => boolean
@@ -88,7 +106,7 @@ interface POSState extends PersistedPOS {
 
 const emptyOrder = (): Omit<
   PersistedPOS,
-  'drafts' | 'history' | 'queue' | 'openOrders'
+  'drafts' | 'history' | 'queue' | 'openOrders' | 'editingPendingOrderId'
 > => ({
   cart: [],
   tableId: null,
@@ -177,13 +195,17 @@ const isOpenOrders = (
   !Array.isArray(value) &&
   Object.values(value).every(isOpenOrderSnapshot)
 
+const isOrderStatus = (value: unknown): value is OrderStatus =>
+  value === 'pending_payment' || value === 'completed' || value === 'cancelled'
+
 const isOrderLine = (value: unknown): value is OrderLineSnapshot =>
   isRecord(value) &&
   typeof value.menuItemId === 'string' &&
   typeof value.name === 'string' &&
   isFiniteNumber(value.unitPrice) &&
   isFiniteNumber(value.qty) &&
-  value.qty > 0
+  value.qty > 0 &&
+  (value.served === undefined || typeof value.served === 'boolean')
 
 const isOrder = (value: unknown): value is OrderRecord =>
   isRecord(value) &&
@@ -204,7 +226,8 @@ const isOrder = (value: unknown): value is OrderRecord =>
   (value.change === undefined || isFiniteNumber(value.change)) &&
   typeof value.note === 'string' &&
   isFiniteNumber(value.createdAt) &&
-  typeof value.cashier === 'string'
+  typeof value.cashier === 'string' &&
+  (value.status === undefined || isOrderStatus(value.status))
 
 const isQueueItem = (value: unknown): value is SyncItem =>
   isRecord(value) &&
@@ -234,11 +257,29 @@ const isPersistedPOSv2 = (value: unknown): value is PersistedPOSv2 =>
 const hasValidOpenOrders = (value: unknown): boolean =>
   isRecord(value) && isOpenOrders(value.openOrders)
 
-const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+const isPersistedPOSv3 = (value: unknown): value is PersistedPOSv3 =>
   isPersistedPOSv2(value) && hasValidOpenOrders(value)
 
+const isPersistedPOS = (value: unknown): value is PersistedPOS =>
+  isRecord(value) &&
+  (value.editingPendingOrderId === null ||
+    typeof value.editingPendingOrderId === 'string') &&
+  isPersistedPOSv3(value)
+
+/** Adds the v4 fields to an older snapshot, deriving status from `voided`. */
+function toV4(state: PersistedPOSv3): PersistedPOS {
+  return {
+    ...state,
+    editingPendingOrderId: null,
+    history: state.history.map((order) => ({
+      ...order,
+      status: order.voided ? 'cancelled' : 'completed',
+    })),
+  }
+}
+
 /** Upgrades a v1 snapshot: old orders become read-only `legacy` rows. */
-function migrateV1(from: PersistedPOSv1): PersistedPOS {
+function migrateV1(from: PersistedPOSv1): PersistedPOSv3 {
   const history: LocalOrder[] = from.history.map((order) => ({
     ...order,
     clientId: order.id,
@@ -282,14 +323,18 @@ const safeStorage: PersistStorage<PersistedPOS> = {
       const parsed = JSON.parse(raw) as unknown
       if (!isRecord(parsed) || !isRecord(parsed.state)) return null
 
-      if (parsed.version === 3 && isPersistedPOS(parsed.state)) {
-        return { state: parsed.state, version: 3 }
+      if (parsed.version === 4 && isPersistedPOS(parsed.state)) {
+        return { state: parsed.state, version: 4 }
+      }
+
+      if (parsed.version === 3 && isPersistedPOSv3(parsed.state)) {
+        return { state: toV4(parsed.state), version: 4 }
       }
 
       if (parsed.version === 2 && isPersistedPOSv2(parsed.state)) {
         return {
-          state: { ...parsed.state, openOrders: {} },
-          version: 3,
+          state: toV4({ ...parsed.state, openOrders: {} }),
+          version: 4,
         }
       }
 
@@ -307,8 +352,8 @@ const safeStorage: PersistStorage<PersistedPOS> = {
           legacy.history.every(isOrder)
         ) {
           return {
-            state: migrateV1(legacy as unknown as PersistedPOSv1),
-            version: 3,
+            state: toV4(migrateV1(legacy as unknown as PersistedPOSv1)),
+            version: 4,
           }
         }
       }
@@ -347,6 +392,58 @@ function provisionalCode(clientId: string): string {
   return `OFF-${clientId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
 }
 
+/** Snapshots cart lines, keeping `served` so pending orders can be resumed. */
+function orderLinesFromCart(cart: CartLine[]): OrderLineSnapshot[] {
+  return cart.map((line) => {
+    const item = resolveMenuItem(line.menuItemId)
+    return {
+      menuItemId: line.menuItemId,
+      name: line.name ?? item?.name ?? 'Món',
+      unitPrice: line.unitPrice ?? item?.price ?? 0,
+      qty: line.qty,
+      served: line.served === true,
+    }
+  })
+}
+
+function payloadItemsFromLines(
+  items: OrderLineSnapshot[],
+): CreateOrderPayload['items'] {
+  return items.map((item) => ({
+    menuItemId: resolveMenuItem(item.menuItemId)?.serverId ?? item.menuItemId,
+    qty: item.qty,
+  }))
+}
+
+function payloadDiscount(
+  discount: Discount | undefined,
+): CreateOrderPayload['discount'] | undefined {
+  if (!discount || discount.value <= 0) return undefined
+  return {
+    type: discount.type === 'percent' ? 'PERCENT' : 'AMOUNT',
+    value: discount.value,
+  }
+}
+
+function createOrderQueueItem(
+  clientId: string,
+  payload: CreateOrderPayload,
+  expected: number,
+  now: number,
+): SyncItem {
+  return {
+    id: clientId,
+    kind: 'CREATE_ORDER',
+    state: 'pending',
+    payload,
+    idempotencyKey: clientId,
+    expectedTotal: expected,
+    attempts: 0,
+    nextAttemptAt: 0,
+    createdAt: now,
+  }
+}
+
 function pruneHistory(history: LocalOrder[]): LocalOrder[] {
   if (history.length <= HISTORY_LIMIT) return history
   const keep: LocalOrder[] = []
@@ -370,6 +467,90 @@ function triggerSync(): void {
     .catch(() => undefined)
 }
 
+/**
+ * Pending rows are addressed as `${order.id}:${index}` when the order is only
+ * viewed in history. While it is being edited, the active cart holds the
+ * original (stable) ids: after a removal the snapshot indices shift, so the
+ * same id must still resolve to the same line in both history and cart.
+ */
+function pendingLineIndex(
+  state: POSState,
+  order: LocalOrder,
+  lineId: string,
+): number {
+  if (state.editingPendingOrderId === order.id) {
+    const owned = state.cart.filter((line) =>
+      line.lineId.startsWith(`${order.id}:`),
+    )
+    const position = owned.findIndex((line) => line.lineId === lineId)
+    if (position >= 0) return position
+  }
+  return order.items.findIndex(
+    (_line, index) => `${order.id}:${index}` === lineId,
+  )
+}
+
+/**
+ * Shared patch for popup quantity edits. `qty <= 0` drops the line, otherwise
+ * it is updated in place. Returns null when the target is not editable.
+ */
+function patchPendingLine(
+  state: POSState,
+  orderId: string,
+  lineId: string,
+  qty: number,
+): Partial<POSState> | null {
+  const order = state.history.find(
+    (item) => item.id === orderId && item.status === 'pending_payment',
+  )
+  if (!order) return null
+
+  const index = pendingLineIndex(state, order, lineId)
+  if (index < 0 || order.items[index].served === true) return null
+
+  const remove = qty <= 0
+  const items = remove
+    ? order.items.filter((_line, i) => i !== index)
+    : order.items.map((line, i) => (i === index ? { ...line, qty } : line))
+
+  const discount: Discount = order.discount ?? {
+    type: 'amount',
+    value: order.discountAmount,
+  }
+  const totals = calcTotals(
+    items.map((item) => ({ unitPrice: item.unitPrice, qty: item.qty })),
+    discount,
+    RESTAURANT.taxRate,
+  )
+  const updated: LocalOrder = {
+    ...order,
+    items,
+    ...totals,
+    updatedAt: Date.now(),
+  }
+
+  let syncedCart: CartLine[] | undefined
+  if (state.editingPendingOrderId === orderId) {
+    // A resumed order is saved back from the active cart. Patch the exact
+    // cart line by its original id so a later save cannot restore an old qty
+    // or bring a removed line back.
+    syncedCart = remove
+      ? state.cart.filter((line) => line.lineId !== lineId)
+      : state.cart.map((line) =>
+          line.lineId === lineId ? { ...line, qty } : line,
+        )
+  }
+
+  return {
+    history: state.history.map((item) =>
+      item.id === order.id ? updated : item,
+    ),
+    // A resumed order is saved back from the active cart; mirror the patch so
+    // savePendingOrder() cannot restore the old qty or bring the line back.
+    ...(syncedCart ? { cart: syncedCart } : {}),
+  }
+}
+
 export const usePOSStore = create<POSState>()(
   persist<POSState, [], [], PersistedPOS>(
     (set, get) => ({
@@ -378,6 +559,7 @@ export const usePOSStore = create<POSState>()(
       history: [],
       queue: [],
       openOrders: {},
+      editingPendingOrderId: null,
       storageError: false,
 
       addItem: (menuItemId) => {
@@ -447,6 +629,7 @@ export const usePOSStore = create<POSState>()(
         set((state) => ({
           ...emptyOrder(),
           openOrders: withoutSnapshot(state.openOrders, state.tableId),
+          editingPendingOrderId: null,
         })),
 
       setTable: (tableId) => get().switchTable(tableId),
@@ -488,6 +671,303 @@ export const usePOSStore = create<POSState>()(
         })
       },
 
+      assignTable: (tableId) => set({ tableId }),
+
+      savePendingOrder: () => {
+        const state = get()
+        if (state.cart.length === 0) return null
+
+        const items = orderLinesFromCart(state.cart)
+        const totals = calcTotals(
+          items.map((item) => ({ unitPrice: item.unitPrice, qty: item.qty })),
+          state.discount,
+          RESTAURANT.taxRate,
+        )
+        const now = Date.now()
+        const editingId = state.editingPendingOrderId
+        const editing =
+          editingId === null
+            ? undefined
+            : state.history.find(
+                (order) =>
+                  order.id === editingId &&
+                  order.status === 'pending_payment',
+              )
+
+        let order: LocalOrder
+        if (editing) {
+          order = {
+            ...editing,
+            tableId: state.tableId,
+            tableName: resolveTableName(state.tableId),
+            items,
+            ...totals,
+            discount: { ...state.discount },
+            note: state.note,
+            updatedAt: now,
+          }
+        } else {
+          const clientId = makeId()
+          const authUser = useAuthStore.getState().user
+          order = {
+            id: clientId,
+            clientId,
+            code: provisionalCode(clientId),
+            provisionalCode: true,
+            syncState: 'pending',
+            tableId: state.tableId,
+            tableName: resolveTableName(state.tableId),
+            items,
+            ...totals,
+            method: 'cash',
+            discount: { ...state.discount },
+            note: state.note,
+            createdAt: now,
+            updatedAt: now,
+            cashier: authUser?.name ?? RESTAURANT.cashier,
+            status: 'pending_payment',
+            cashierId: authUser?.id ?? '',
+          }
+        }
+
+        set((prev) => ({
+          history: editing
+            ? prev.history.map((item) => (item.id === editing.id ? order : item))
+            : pruneHistory([order, ...prev.history]),
+          ...emptyOrder(),
+          editingPendingOrderId: null,
+          openOrders: withoutSnapshot(
+            withoutSnapshot(prev.openOrders, prev.tableId),
+            order.tableId,
+          ),
+        }))
+        return order
+      },
+
+      resumePendingOrder: (orderId) => {
+        const state = get()
+        const order = state.history.find(
+          (item) =>
+            item.id === orderId && item.status === 'pending_payment',
+        )
+        if (!order) return
+
+        // Drop the order's stale snapshot first: when the active cart is on
+        // the same table, stashing afterwards must not be overwritten by it.
+        let openOrders = withoutSnapshot(state.openOrders, order.tableId)
+        openOrders = stashSnapshot(
+          openOrders,
+          state.tableId,
+          state.cart,
+          state.discount,
+          state.note,
+        )
+
+        set({
+          cart: order.items.map((line, index) => ({
+            lineId: `${order.id}:${index}`,
+            menuItemId: line.menuItemId,
+            qty: line.qty,
+            unitPrice: line.unitPrice,
+            name: line.name,
+            served: line.served === true,
+          })),
+          discount: order.discount
+            ? { ...order.discount }
+            : { type: 'amount', value: order.discountAmount },
+          note: order.note,
+          tableId: order.tableId,
+          openOrders,
+          editingPendingOrderId: order.id,
+        })
+      },
+
+      payPendingOrder: (orderId, input) => {
+        const state = get()
+        const order = state.history.find(
+          (item) =>
+            item.id === orderId && item.status === 'pending_payment',
+        )
+        if (!order) return null
+
+        const table = resolveTable(order.tableId)
+        const expected = input.expectedTotal ?? order.total
+        const discount = payloadDiscount(order.discount)
+        const payload: CreateOrderPayload = {
+          clientId: order.clientId,
+          items: payloadItemsFromLines(order.items),
+          payment: {
+            method: SERVER_METHOD[input.method],
+            ...(input.method === 'cash' && input.received !== undefined
+              ? { received: input.received }
+              : {}),
+          },
+          expectedTotal: expected,
+          ...(table?.serverId ? { tableId: table.serverId } : {}),
+          ...(order.note ? { note: order.note } : {}),
+          ...(discount ? { discount } : {}),
+        }
+        const now = Date.now()
+        const paid: LocalOrder = {
+          ...order,
+          status: 'completed',
+          method: input.method,
+          ...(input.method === 'cash' && input.received !== undefined
+            ? { received: input.received, change: input.change }
+            : {}),
+          updatedAt: now,
+        }
+
+        const isEditing = state.editingPendingOrderId === order.id
+        set((prev) => ({
+          history: prev.history.map((item) => (item.id === order.id ? paid : item)),
+          queue: [
+            ...prev.queue.filter((item) => item.id !== order.clientId),
+            createOrderQueueItem(order.clientId, payload, expected, now),
+          ],
+          // "Thêm món" leaves the editing order in the active cart; paying it
+          // finishes that order, so clear the working order as well.
+          ...(isEditing ? emptyOrder() : {}),
+          openOrders: withoutSnapshot(prev.openOrders, order.tableId),
+          editingPendingOrderId:
+            prev.editingPendingOrderId === order.id
+              ? null
+              : prev.editingPendingOrderId,
+        }))
+
+        triggerSync()
+        return paid
+      },
+
+      cancelPendingOrder: (orderId) => {
+        const state = get()
+        const order = state.history.find(
+          (item) =>
+            item.id === orderId && item.status === 'pending_payment',
+        )
+        if (!order) return
+
+        set((prev) => ({
+          history: prev.history.map((item) =>
+            item.id === orderId
+              ? { ...item, status: 'cancelled', updatedAt: Date.now() }
+              : item,
+          ),
+          queue: prev.queue.filter((item) => item.id !== order.clientId),
+          openOrders: withoutSnapshot(prev.openOrders, order.tableId),
+          editingPendingOrderId:
+            prev.editingPendingOrderId === orderId
+              ? null
+              : prev.editingPendingOrderId,
+        }))
+      },
+
+      // Popup edits patch the history row in place without resuming the order.
+      // When the order is still being edited, the matching active state is
+      // synced too, so savePendingOrder() cannot overwrite the patch later.
+      setPendingOrderTable: (orderId, tableId) => {
+        const isTarget = (order: LocalOrder) =>
+          order.id === orderId && order.status === 'pending_payment'
+        if (!get().history.some(isTarget)) return
+
+        set((state) => ({
+          history: state.history.map((order) =>
+            isTarget(order)
+              ? {
+                  ...order,
+                  tableId,
+                  tableName: resolveTableName(tableId),
+                  updatedAt: Date.now(),
+                }
+              : order,
+          ),
+          // A resumed order is saved back from the active cart, whose tableId
+          // would otherwise overwrite this patch with the old table.
+          ...(state.editingPendingOrderId === orderId ? { tableId } : {}),
+        }))
+      },
+
+      setPendingLineServed: (orderId, lineId, served) => {
+        const isTarget = (order: LocalOrder) =>
+          order.id === orderId && order.status === 'pending_payment'
+        if (!get().history.some(isTarget)) return
+
+        set((state) => ({
+          history: state.history.map((order) =>
+            isTarget(order)
+              ? {
+                  ...order,
+                  updatedAt: Date.now(),
+                  // Only `served` changes, never qty or prices. Resolve the
+                  // id through the resumed cart when indices have shifted.
+                  items: order.items.map((line, index) =>
+                    index === pendingLineIndex(state, order, lineId)
+                      ? { ...line, served }
+                      : line,
+                  ),
+                }
+              : order,
+          ),
+          // A resumed order is saved back from the active cart; keep the
+          // matching cart line in sync so its served flag survives that save.
+          ...(state.editingPendingOrderId === orderId
+            ? {
+                cart: state.cart.map((line) =>
+                  line.lineId === lineId ? { ...line, served } : line,
+                ),
+              }
+            : {}),
+        }))
+      },
+
+      setPendingLineQty: (orderId, lineId, qty) => {
+        if (!Number.isFinite(qty)) return
+        const patch = patchPendingLine(get(), orderId, lineId, qty)
+        if (patch) set(patch)
+      },
+
+      removePendingLine: (orderId, lineId) => {
+        const patch = patchPendingLine(get(), orderId, lineId, 0)
+        if (patch) set(patch)
+      },
+
+      setAllPendingServed: (orderId) => {
+        const isTarget = (order: LocalOrder) =>
+          order.id === orderId && order.status === 'pending_payment'
+        const target = get().history.find(isTarget)
+        if (!target) return
+        // Use the ids actually held by the resumed cart: after a removal the
+        // snapshot indices no longer match those original ids.
+        const cartLineIds = new Set(
+          get()
+            .cart.filter((line) => line.lineId.startsWith(`${orderId}:`))
+            .map((line) => line.lineId),
+        )
+
+        set((state) => ({
+          history: state.history.map((order) =>
+            isTarget(order)
+              ? {
+                  ...order,
+                  updatedAt: Date.now(),
+                  items: order.items.map((line) => ({ ...line, served: true })),
+                }
+              : order,
+          ),
+          // Only the lines belonging to the edited order are synced; any
+          // extra lines added through "Thêm món" keep their own served flags.
+          ...(state.editingPendingOrderId === orderId
+            ? {
+                cart: state.cart.map((line) =>
+                  cartLineIds.has(line.lineId)
+                    ? { ...line, served: true }
+                    : line,
+                ),
+              }
+            : {}),
+        }))
+      },
+
       setLineServed: (lineId, served) =>
         set((state) => ({
           cart: state.cart.map((line) =>
@@ -504,7 +984,15 @@ export const usePOSStore = create<POSState>()(
         const state = get()
         const active = state.tableId === tableId && state.cart.length > 0
         const snapshot = state.openOrders[orderKey(tableId)]
-        return active || (snapshot !== undefined && snapshot.cart.length > 0)
+        const pending = state.history.some(
+          (order) =>
+            order.status === 'pending_payment' &&
+            order.tableId === tableId &&
+            order.id !== state.editingPendingOrderId,
+        )
+        return (
+          active || (snapshot !== undefined && snapshot.cart.length > 0) || pending
+        )
       },
 
       setDiscount: (discount) => set({ discount }),
@@ -528,6 +1016,7 @@ export const usePOSStore = create<POSState>()(
           drafts: [draft, ...state.drafts],
           ...emptyOrder(),
           openOrders: withoutSnapshot(state.openOrders, state.tableId),
+          editingPendingOrderId: null,
         })
       },
 
@@ -568,19 +1057,8 @@ export const usePOSStore = create<POSState>()(
         const state = get()
         if (state.cart.length === 0) return null
 
-        const items: OrderLineSnapshot[] = []
-        const payloadItems: CreateOrderPayload['items'] = []
-
-        for (const line of state.cart) {
-          const item = resolveMenuItem(line.menuItemId)
-          const unitPrice = line.unitPrice ?? item?.price ?? 0
-          const name = line.name ?? item?.name ?? 'Món'
-          items.push({ menuItemId: line.menuItemId, name, unitPrice, qty: line.qty })
-          payloadItems.push({
-            menuItemId: item?.serverId ?? line.menuItemId,
-            qty: line.qty,
-          })
-        }
+        const items = orderLinesFromCart(state.cart)
+        const payloadItems = payloadItemsFromLines(items)
 
         if (items.length === 0) return null
 
@@ -595,6 +1073,7 @@ export const usePOSStore = create<POSState>()(
         const now = Date.now()
         const table = resolveTable(state.tableId)
         const expected = expectedTotal ?? totals.total
+        const discount = payloadDiscount(state.discount)
 
         const order: LocalOrder = {
           id: clientId,
@@ -610,6 +1089,7 @@ export const usePOSStore = create<POSState>()(
           note: state.note,
           createdAt: now,
           cashier: authUser?.name ?? RESTAURANT.cashier,
+          status: 'completed',
           cashierId: authUser?.id ?? '',
           ...(method === 'cash' && received !== undefined
             ? { received, change }
@@ -626,33 +1106,19 @@ export const usePOSStore = create<POSState>()(
           expectedTotal: expected,
           ...(table?.serverId ? { tableId: table.serverId } : {}),
           ...(state.note ? { note: state.note } : {}),
-          ...(state.discount.value > 0
-            ? {
-                discount: {
-                  type: state.discount.type === 'percent' ? 'PERCENT' : 'AMOUNT',
-                  value: state.discount.value,
-                },
-              }
-            : {}),
+          ...(discount ? { discount } : {}),
         }
 
-        const syncItem: SyncItem = {
-          id: clientId,
-          kind: 'CREATE_ORDER',
-          state: 'pending',
-          payload,
-          idempotencyKey: clientId,
-          expectedTotal: expected,
-          attempts: 0,
-          nextAttemptAt: 0,
-          createdAt: now,
-        }
+        const syncItem = createOrderQueueItem(clientId, payload, expected, now)
 
         set({
           history: pruneHistory([order, ...state.history]),
           queue: [...state.queue, syncItem],
           ...emptyOrder(),
           openOrders: withoutSnapshot(state.openOrders, state.tableId),
+          // A checkout finishes any pending order being edited, even when it
+          // happens from create mode rather than payPendingOrder.
+          editingPendingOrderId: null,
         })
 
         triggerSync()
@@ -783,7 +1249,12 @@ export const usePOSStore = create<POSState>()(
             queue: [...state.queue, item],
             history: state.history.map((order) =>
               order.serverId === serverId
-                ? { ...order, voided: true, voidReason: reason }
+                ? {
+                    ...order,
+                    voided: true,
+                    voidReason: reason,
+                    status: 'cancelled',
+                  }
                 : order,
             ),
           }
@@ -796,7 +1267,7 @@ export const usePOSStore = create<POSState>()(
           queue: state.queue.filter((item) => item.id !== serverId),
           history: state.history.map((order) =>
             order.serverId === serverId
-              ? { ...order, voided: true }
+              ? { ...order, voided: true, status: 'cancelled' }
               : order,
           ),
         }))
@@ -815,6 +1286,7 @@ export const usePOSStore = create<POSState>()(
                   voided: true,
                   voidReason: reason,
                   syncState: 'voided',
+                  status: 'cancelled',
                 }
               : order,
           ),
@@ -823,7 +1295,7 @@ export const usePOSStore = create<POSState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 3,
+      version: 4,
       storage: safeStorage,
       partialize: (state): PersistedPOS => ({
         cart: state.cart,
@@ -834,6 +1306,7 @@ export const usePOSStore = create<POSState>()(
         history: state.history,
         queue: state.queue,
         openOrders: state.openOrders,
+        editingPendingOrderId: state.editingPendingOrderId,
       }),
     },
   ),

@@ -43,4 +43,16 @@ describe('Modal', () => {
 
     expect(screen.queryByText('Không thấy')).not.toBeInTheDocument()
   })
+
+  it('applies the max-w-5xl class for size xl', () => {
+    render(
+      <Modal open title="Đơn hàng" onClose={vi.fn()} size="xl">
+        <p>Nội dung</p>
+      </Modal>,
+    )
+
+    expect(screen.getByRole('dialog', { name: 'Đơn hàng' })).toHaveClass(
+      'max-w-5xl',
+    )
+  })
 })

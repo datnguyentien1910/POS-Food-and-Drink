@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { createHashRouter, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router'
 import { AppShell } from '../components/layout/AppShell'
-import { ChargeModal } from '../components/modals/ChargeModal'
 import { ReceiptModal } from '../components/modals/ReceiptModal'
+import { OrderModal } from '../components/order/OrderModal'
 import { GlobalSearch } from '../components/search/GlobalSearch'
 import { APP_PAGES, type PageId } from '../config'
 import { MenuPage } from '../pages/MenuPage'
@@ -18,7 +18,7 @@ export function pageFromPath(pathname: string): PageId {
 }
 
 export type LayoutContext = {
-  onCharge: () => void
+  onCreateOrder: () => void
   onOpenReceipt: (order: OrderRecord) => void
 }
 
@@ -26,7 +26,7 @@ function AppLayout() {
   const navigate = useNavigate()
   const activePage = pageFromPath(useLocation().pathname)
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1280)
-  const [chargeOpen, setChargeOpen] = useState(false)
+  const [orderOpen, setOrderOpen] = useState(false)
   const [receiptOrder, setReceiptOrder] = useState<OrderRecord | null>(null)
 
   useEffect(() => {
@@ -53,12 +53,12 @@ function AppLayout() {
         searchSlot={<GlobalSearch onNavigate={go} onOpenReceipt={setReceiptOrder} />}
       >
         <Outlet
-          context={{ onCharge: () => setChargeOpen(true), onOpenReceipt: setReceiptOrder } satisfies LayoutContext}
+          context={{ onCreateOrder: () => setOrderOpen(true), onOpenReceipt: setReceiptOrder } satisfies LayoutContext}
         />
       </AppShell>
-      {chargeOpen ? (
-        <ChargeModal open onClose={() => setChargeOpen(false)}
-          onOpenReceipt={(order) => { setReceiptOrder(order); setChargeOpen(false) }} />
+      {orderOpen ? (
+        <OrderModal open onClose={() => setOrderOpen(false)}
+          onOpenReceipt={(order) => { setReceiptOrder(order); setOrderOpen(false) }} />
       ) : null}
       <ReceiptModal order={receiptOrder} open={Boolean(receiptOrder)} onClose={() => setReceiptOrder(null)} />
     </>
@@ -66,13 +66,18 @@ function AppLayout() {
 }
 
 function POSRoute() {
-  const { onCharge } = useOutletContext<LayoutContext>()
-  return <POSPage onCharge={onCharge} />
+  const { onCreateOrder } = useOutletContext<LayoutContext>()
+  return <POSPage onCreateOrder={onCreateOrder} />
 }
 
 function OrdersRoute() {
   const { onOpenReceipt } = useOutletContext<LayoutContext>()
   return <OrdersPage onOpenReceipt={onOpenReceipt} />
+}
+
+function TablesRoute() {
+  const { onOpenReceipt } = useOutletContext<LayoutContext>()
+  return <TablesPage onOpenReceipt={onOpenReceipt} />
 }
 
 function PlaceholderRoute() {
@@ -92,7 +97,7 @@ export const router = createHashRouter([
       { path: 'pos', element: <POSRoute /> },
       { path: 'orders', element: <OrdersRoute /> },
       { path: 'menu', element: <MenuPage /> },
-      { path: 'tables', element: <TablesPage /> },
+      { path: 'tables', element: <TablesRoute /> },
       { path: ':pageId', element: <PlaceholderRoute /> },
       { path: '*', element: <Navigate to="/pos" replace /> },
     ],

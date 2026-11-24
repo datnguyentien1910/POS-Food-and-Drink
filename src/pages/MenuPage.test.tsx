@@ -24,10 +24,12 @@ vi.mock('../api/menu', () => ({
 }))
 
 const MENU: ServerMenuCategory[] = [
+  { id: 'virtual-all', name: 'all', sortOrder: 0, items: [] },
+  { id: 'virtual-popular', name: 'popular', sortOrder: 1, items: [] },
   {
     id: 'c1',
     name: 'Món chính',
-    sortOrder: 1,
+    sortOrder: 2,
     items: [
       {
         id: 'm1',
@@ -59,7 +61,11 @@ const MENU: ServerMenuCategory[] = [
   },
 ]
 
-const CATEGORIES = [{ id: 'c1', name: 'Món chính', sortOrder: 1 }]
+const CATEGORIES = [
+  { id: 'virtual-all', name: 'all', sortOrder: 0 },
+  { id: 'virtual-popular', name: 'popular', sortOrder: 1 },
+  { id: 'c1', name: 'Món chính', sortOrder: 2 },
+]
 
 function setRole(role: Role) {
   useAuthStore.setState({
@@ -99,6 +105,22 @@ describe('MenuPage', () => {
     expect(screen.getByRole('button', { name: 'Thêm món' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Sửa' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Xoá' })).toHaveLength(2)
+  })
+
+  it('hides virtual all/popular categories from the management groups', async () => {
+    setRole('OWNER')
+
+    renderPage()
+
+    expect(await screen.findByText('Gà nướng')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'all' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'popular' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Nhóm này chưa có món.')).not.toBeInTheDocument()
+    expect(screen.getByText('1 nhóm')).toBeInTheDocument()
   })
 
   it('hides management actions from a cashier', async () => {

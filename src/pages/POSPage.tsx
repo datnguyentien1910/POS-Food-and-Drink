@@ -12,10 +12,10 @@ import { formatVND } from '../lib/format'
 import { usePOSStore } from '../store/usePOSStore'
 
 interface POSPageProps {
-  onCharge: () => void
+  onCreateOrder: () => void
 }
 
-export function POSPage({ onCharge }: POSPageProps) {
+export function POSPage({ onCreateOrder }: POSPageProps) {
   const history = usePOSStore((state) => state.history)
   const cart = usePOSStore((state) => state.cart)
   const discount = usePOSStore((state) => state.discount)
@@ -48,7 +48,7 @@ export function POSPage({ onCharge }: POSPageProps) {
             Bán hàng
           </p>
           <p className="mt-0.5 text-xs text-muted">
-            Chọn món, lưu nháp và thanh toán tại quầy.
+            Chọn món, lưu nháp và tạo đơn tại quầy.
           </p>
         </div>
         <button
@@ -71,7 +71,7 @@ export function POSPage({ onCharge }: POSPageProps) {
 
         <aside className="hidden min-h-0 lg:block">
           <OrderPanel
-            onCharge={onCharge}
+            onCreateOrder={onCreateOrder}
             onOpenDrafts={() => setDraftsOpen(true)}
             className="h-full"
           />
@@ -101,7 +101,7 @@ export function POSPage({ onCharge }: POSPageProps) {
           />
           <div className="absolute inset-y-0 right-0 w-full max-w-[380px] overflow-y-auto bg-bg p-3 animate-drawer-in">
             <OrderPanel
-              onCharge={onCharge}
+              onCreateOrder={onCreateOrder}
               onOpenDrafts={() => setDraftsOpen(true)}
               onClose={() => setCartOpen(false)}
               className="h-full"

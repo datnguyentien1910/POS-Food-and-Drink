@@ -36,6 +36,7 @@ export function orderFromServer(order: ServerOrder): OrderRecord {
     serverId: order.id,
     syncState: 'synced',
     provisionalCode: false,
+    status: order.status === 'VOIDED' ? 'cancelled' : 'completed',
     voided: order.status === 'VOIDED',
     ...(order.voidReason ? { voidReason: order.voidReason } : {}),
   }

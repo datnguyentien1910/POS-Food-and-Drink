@@ -52,6 +52,7 @@ const order: LocalOrder = {
   note: '',
   createdAt: new Date(2026, 10, 18, 12).getTime(),
   cashier: 'Thu ngân',
+  status: 'completed',
   syncState: 'synced',
   provisionalCode: false,
   cashierId: 'u1',

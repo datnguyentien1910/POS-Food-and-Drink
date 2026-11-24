@@ -89,6 +89,7 @@ function makeOrder(overrides: Partial<LocalOrder> = {}): LocalOrder {
     note: '',
     createdAt: 1,
     cashier: 'Thu ngân',
+    status: 'completed',
   }
   return {
     ...base,

@@ -11,6 +11,7 @@ import type {
   ServerMenuCategorySummary,
   ServerMenuItem,
 } from '../../api/types'
+import { isVirtualCategory } from '../../lib/category'
 import { resolveMenuImage } from '../../lib/menu-image'
 import { Button } from '../ui/Button'
 import { Modal } from '../ui/Modal'
@@ -23,8 +24,6 @@ export interface MenuItemFormModalProps {
   onClose: () => void
   onSaved: () => void
 }
-
-const IGNORED_CATEGORIES = new Set(['all', 'popular'])
 
 const inputClass =
   'h-10 w-full rounded-xl border border-line bg-bg/40 px-3 text-xs font-medium text-ink placeholder:text-faint focus:border-primary-ring focus:bg-surface focus:outline-none'
@@ -43,7 +42,7 @@ export function MenuItemFormModal({
   const descriptionId = useId()
 
   const visibleCategories = categories.filter(
-    (category) => !IGNORED_CATEGORIES.has(category.name),
+    (category) => !isVirtualCategory(category.name),
   )
 
   const [name, setName] = useState(item?.name ?? '')

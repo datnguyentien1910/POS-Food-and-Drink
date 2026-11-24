@@ -18,6 +18,7 @@ function makeOrder(createdAt: number, total: number): OrderRecord {
     note: '',
     createdAt,
     cashier: 'Thu ngân',
+    status: 'completed',
   }
 }
 

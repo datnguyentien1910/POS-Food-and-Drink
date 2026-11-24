@@ -12,7 +12,6 @@ import { RESTAURANT } from '../../config'
 import { getMenuItem } from '../../data/menu'
 import { calcTotals } from '../../lib/calc'
 import { formatVND } from '../../lib/format'
-import { countUnserved } from '../../lib/table-state'
 import { usePOSStore } from '../../store/usePOSStore'
 import { ConfirmModal } from '../modals/ConfirmModal'
 import { Badge } from '../ui/Badge'
@@ -22,32 +21,26 @@ import { IconButton } from '../ui/IconButton'
 import { Popover } from '../ui/Popover'
 import { useToast } from '../ui/toast-context'
 import { CartRow } from './CartRow'
-import { NoteEditor } from './NoteEditor'
-import { OrderSummary } from './OrderSummary'
-import { TableBadge } from './TableBadge'
 
 interface OrderPanelProps {
-  onCharge: () => void
+  onCreateOrder: () => void
   onOpenDrafts: () => void
   onClose?: () => void
   className?: string
 }
 
 export function OrderPanel({
-  onCharge,
+  onCreateOrder,
   onOpenDrafts,
   onClose,
   className,
 }: OrderPanelProps) {
   const cart = usePOSStore((state) => state.cart)
-  const tableId = usePOSStore((state) => state.tableId)
   const drafts = usePOSStore((state) => state.drafts)
   const discount = usePOSStore((state) => state.discount)
   const increment = usePOSStore((state) => state.increment)
   const decrement = usePOSStore((state) => state.decrement)
   const removeItem = usePOSStore((state) => state.removeItem)
-  const setLineServed = usePOSStore((state) => state.setLineServed)
-  const setAllServed = usePOSStore((state) => state.setAllServed)
   const resetOrder = usePOSStore((state) => state.resetOrder)
   const saveDraft = usePOSStore((state) => state.saveDraft)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -68,7 +61,6 @@ export function OrderPanel({
 
   const itemCount = cart.reduce((sum, line) => sum + line.qty, 0)
   const isEmpty = cart.length === 0
-  const showServed = tableId !== null
 
   const handleSaveDraft = () => {
     if (isEmpty) return
@@ -99,20 +91,9 @@ export function OrderPanel({
           <Badge tone="primary" className="shrink-0">
             {itemCount} món
           </Badge>
-          {showServed && countUnserved(cart) > 0 ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={setAllServed}
-              className="h-8 shrink-0 px-2.5 text-[11px]"
-            >
-              Chọn tất cả
-            </Button>
-          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <TableBadge />
           <button
             type="button"
             aria-label="Đơn nháp"
@@ -193,10 +174,6 @@ export function OrderPanel({
                 onIncrement={() => increment(line.lineId)}
                 onDecrement={() => decrement(line.lineId)}
                 onRemove={() => removeItem(line.lineId)}
-                showServed={showServed}
-                onToggleServed={() =>
-                  setLineServed(line.lineId, line.served !== true)
-                }
               />
             ))}
           </div>
@@ -204,29 +181,25 @@ export function OrderPanel({
       </div>
 
       <div className="shrink-0 border-t border-line px-4 py-3.5">
-        {!isEmpty ? (
-          <div className="mb-3">
-            <NoteEditor />
-          </div>
-        ) : null}
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-muted">Tổng cộng</span>
+          <span className="text-base font-bold text-ink tabular-nums">
+            {formatVND(totals.total)}
+          </span>
+        </div>
 
-        <OrderSummary totals={totals} />
-
-        <div className="mt-4 flex items-stretch gap-2">
+        <div className="flex items-stretch gap-2">
           <Button
             disabled={isEmpty}
-            onClick={onCharge}
+            onClick={onCreateOrder}
             aria-label={
               isEmpty
-                ? 'Thanh toán'
-                : `Thanh toán ${formatVND(totals.total)}`
+                ? 'Tạo đơn'
+                : `Tạo đơn ${formatVND(totals.total)}`
             }
             className="min-w-0 flex-1 justify-between"
           >
-            <span className="flex items-center gap-2">
-              <span>Thanh toán</span>
-              {!isEmpty ? <span>{formatVND(totals.total)}</span> : null}
-            </span>
+            <span>Tạo đơn</span>
             <ArrowRight size={16} />
           </Button>
           <Button

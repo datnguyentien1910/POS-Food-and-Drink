@@ -33,6 +33,7 @@ const order: OrderRecord = {
   note: '',
   createdAt: new Date(2026, 10, 18, 12, 0).getTime(),
   cashier: 'Thu ngân',
+  status: 'completed',
 }
 
 const sources = {

@@ -8,7 +8,7 @@ import {
 import { cx } from '../../lib/cx'
 import { IconButton } from './IconButton'
 
-type ModalSize = 'sm' | 'md' | 'lg'
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
 
 interface ModalProps {
   open: boolean
@@ -25,6 +25,7 @@ const sizes: Record<ModalSize, string> = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-2xl',
+  xl: 'max-w-5xl',
 }
 
 export function Modal({

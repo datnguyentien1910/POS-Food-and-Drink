@@ -2,7 +2,7 @@
 
 Frontend POS cho nhà hàng/quán ăn: gọi món, giỏ hàng, giảm giá, thanh toán và in hoá đơn 80mm. Giao diện tiếng Việt, tiền tệ VND, tối ưu cho laptop tại quầy và tablet. Ứng dụng chạy hoàn toàn trên trình duyệt, lưu đơn nháp và lịch sử trên chính thiết bị, dùng được khi mất mạng sau lần tải đầu.
 
-> Backend, đăng nhập và đồng bộ nhiều máy đã có từ Phase 1. Hiện tại POS, Đơn hàng, Thực đơn và **Bàn** là các màn hình dùng thật; các mục còn lại là placeholder có chủ đích.
+> Backend, đăng nhập và đồng bộ nhiều máy đã có từ Phase 1. Hiện tại POS, Đơn hàng, Thực đơn và **Bàn** là các màn hình dùng thật, với popup đơn dùng chung và đơn chờ thanh toán lưu local; các mục còn lại là placeholder có chủ đích.
 
 > **Tài liệu gốc cho mọi fork:** [PROJECT.md](PROJECT.md) — báo cáo dự án, kiến trúc, quyết định đã chốt, lộ trình Bàn/Đặt bàn/Nhân viên và quy trình lập kế hoạch. Đọc file này trước khi phát triển module mới.
 
@@ -13,9 +13,12 @@ Frontend POS cho nhà hàng/quán ăn: gọi món, giỏ hàng, giảm giá, tha
 ## Tính năng
 
 - **Gọi món**: 16 món mẫu, tabs danh mục, tìm kiếm không dấu, lọc món phổ biến, sắp xếp theo giá, tải thêm món.
-- **Đơn hiện tại**: chọn bàn hoặc mang đi, tăng/giảm số lượng, ghi chú, giảm giá theo số tiền hoặc phần trăm, VAT 8%, lưu tạm.
+- **Đơn hiện tại**: panel phải chỉ quản lý món — tăng/giảm số lượng, xoá món (món đã mang ra bị khoá cả stepper), số món, tổng tiền VAT 8% và nút **Tạo đơn** (kèm lưu tạm/xoá đơn). Chọn bàn/Mang đi, tick “Mang ra/Đã ra” và “Chọn tất cả” đã chuyển vào popup; ghi chú/giảm giá/thanh toán cũng làm trong popup.
 - **Bàn** (`#/tables`): sơ đồ bàn nhóm theo khu vực với 3 trạng thái suy ra từ đơn mở — `Trống` / `Chưa phục vụ` / `Đã phục vụ` (luôn có nhãn chữ + icon). Bấm bàn để mở đơn; đổi bàn tự cất/nạp đơn nên không mất món. Tick “Đã mang ra” theo từng món hoặc “Chọn tất cả”; món đã ra bị khoá sửa/xoá, muốn đổi thì thêm món mới. Thanh toán xong bàn về trống ngay (nếu còn món chưa ra, app hỏi xác nhận thêm một lần). Thêm/xoá bàn chạy cả khi mất mạng, đồng bộ server khi có mạng lại; xoá mềm, chỉ Owner/Manager được thêm/xoá, và không xoá được bàn đang có đơn mở.
+- **Popup đơn dùng chung**: `OrderModal` dùng size `xl` (~1024px), desktop **2 cột** (trái: chọn bàn/Mang đi + danh sách món; phải: ghi chú/giảm giá/tổng/phương thức thanh toán/nút), mobile 1 cột. Mở từ POS (nút **Tạo đơn**), từ bàn đang có đơn trên trang Bàn và từ đơn chờ trên trang Đơn hàng. Chọn bàn/Mang đi và tick món “Mang ra”/“Đã ra” + “Chọn tất cả” dùng được ở **cả chế độ tạo mới và đơn chờ**. Đổi bàn của đơn chờ cập nhật ngay chính bản ghi đó: bàn cũ hết bận, bàn mới bận, món/tổng giữ nguyên. Ghi chú, giảm giá rồi **Lưu chờ thanh toán**, **Thanh toán**, **Thêm món** hoặc **Huỷ đơn**. Cảnh báo 2 bước vẫn áp dụng khi còn món chưa mang ra.
+- **Sửa món trong đơn chờ**: ngay trong popup Chi tiết đơn chờ (từ Bàn/Đơn hàng), món **chưa mang ra** có stepper −/+ và nút **Xoá**; tổng tiền và tiền thu/thối được tính lại theo món hiện tại. Món **đã mang ra** vẫn bị khoá không giảm/tăng/xoá được (chỉ toggle “Mang ra/Đã ra”, policy A); muốn thêm món mới thì bấm **Thêm món** như trước. Nếu đơn đang được soạn, thay đổi cũng đồng bộ vào giỏ POS nên lưu lại/thanh toán không ghi đè. Persist vẫn `restodash-pos-v1` v4, server/branding không đổi.
 - **Thanh toán**: tiền mặt (tính tiền thối, chặn thu thiếu), chuyển khoản, thẻ. Đơn hoàn tất được lưu vào lịch sử trên thiết bị. Đơn mở của từng bàn chỉ lưu local; server chỉ nhận đơn đã thanh toán.
+- **Đơn chờ thanh toán**: là **đơn thật** lưu trên thiết bị (`Chờ thanh toán`), **không phải đơn nháp** và không gửi lên server. Bàn vẫn bận tới khi thu tiền hoặc huỷ. “Thêm món” nạp đơn lại vào giỏ POS mà không mất món đang soạn; lưu lại cập nhật chính đơn đó (không tạo bản trùng). Trang Đơn hàng hiện 3 trạng thái kèm màu + chữ: **Chờ thanh toán** (vàng), **Đã huỷ** (đỏ), **Thành công** (xanh lá).
 - **Hoá đơn**: bản in 80mm qua hộp thoại in của trình duyệt; xem và in lại từ trang Đơn hàng hoặc tìm kiếm toàn cục.
 - **Đơn nháp**: mở lại, xoá, cảnh báo trước khi thay thế đơn đang làm.
 - **Tìm kiếm toàn cục**: `Ctrl/⌘ K` tìm món, đơn nháp, hoá đơn; điều hướng bằng bàn phím.
@@ -71,9 +74,9 @@ Store dùng Zustand persist với key:
 restodash-pos-v1
 ```
 
-Bao gồm: giỏ hàng đang làm, bàn đang chọn, giảm giá, ghi chú, danh sách đơn nháp, hàng đợi đơn chờ đồng bộ, lịch sử đơn đã thanh toán và `openOrders` (đơn mở theo bàn). Dữ liệu tồn tại qua reload và tắt/mở trình duyệt.
+Bao gồm: giỏ hàng đang làm, bàn đang chọn, giảm giá, ghi chú, danh sách đơn nháp, hàng đợi đơn chờ đồng bộ, lịch sử đơn (đã thanh toán/chờ thanh toán/đã huỷ), `openOrders` (giỏ treo theo bàn) và `editingPendingOrderId` (đơn chờ đang soạn). Dữ liệu tồn tại qua reload và tắt/mở trình duyệt.
 
-**Persist version 3** (từ 22/11/2026): key giữ nguyên `restodash-pos-v1` để migrate tại chỗ. Dữ liệu v1/v2 tự động nâng cấp lên v3, giữ nguyên giỏ/nháp/lịch sử/hàng đợi; v3 thêm `openOrders` và cờ `served` trên từng món (dòng cũ thiếu `served` được hiểu là chưa mang ra). Đơn mở chỉ nằm trên thiết bị này — server chỉ nhận đơn đã thanh toán. Xoá key dưới đây sẽ mất cả đơn mở đang treo của các bàn.
+**Persist version 4** (từ 22/11/2026): key giữ nguyên `restodash-pos-v1` để migrate tại chỗ. Dữ liệu cũ tự động nâng cấp (v1/v2 → v3 → v4), giữ nguyên giỏ/nháp/lịch sử/hàng đợi: v3 thêm `openOrders` và cờ `served` trên từng món; v4 thêm trạng thái đơn (`pending_payment`/`completed`/`cancelled`) và `editingPendingOrderId` (đơn chờ đang soạn). Dòng cũ thiếu `served` được hiểu là chưa mang ra. Đơn mở và đơn chờ chỉ nằm trên thiết bị này — **server không đổi**, chỉ nhận đơn đã thanh toán. Xoá key dưới đây sẽ mất cả đơn mở/đơn chờ đang treo.
 
 - **Xoá dữ liệu**: DevTools → Application → Local Storage → xoá key trên, hoặc chạy `localStorage.removeItem('restodash-pos-v1')` trong Console.
 - **Sao lưu**: copy giá trị JSON của key để cất; khôi phục bằng `localStorage.setItem('restodash-pos-v1', '<json>')` rồi tải lại trang.
@@ -113,7 +116,7 @@ Khi dùng thật, thay từng tệp cùng tên bằng ảnh chụp món của qu
 src/
   app/router.tsx      hash router, route table, layout + layout context
   assets/menu/        ảnh món + CREDITS.md
-  components/         layout, menu, order, modals, receipt, search, stats, ui, tables
+  components/         layout, menu, order (OrderPanel + OrderModal `xl` dùng chung), modals, receipt, search, stats, ui, tables
     ErrorBoundary.tsx chặn lỗi render, trang lỗi tiếng Việt
   data/               menu.ts, tables.ts, catalog-seed.ts
   lib/                calc, format, search, id, menu-query, global-search, table-state
@@ -130,7 +133,7 @@ public/               favicon và icon PWA
 
 ## Giới hạn đã biết
 
-- Đã có backend và đăng nhập PIN theo thiết bị; chưa có đồng bộ nhiều thiết bị theo thời gian thực hay sao lưu tự động. Đơn mở theo bàn chỉ lưu local.
+- Đã có backend và đăng nhập PIN theo thiết bị; chưa có đồng bộ nhiều thiết bị theo thời gian thực hay sao lưu tự động. Đơn mở và đơn chờ thanh toán chỉ lưu local; server chỉ nhận đơn đã thu tiền.
 - Khách hàng và Công nợ hiển thị “—” cho tới khi nối backend; app không tạo số liệu giả.
 - Chưa tích hợp máy in ESC/POS, QR ngân hàng hay máy quẹt thẻ.
 - Các trang Tổng quan, Đặt bàn, Khách hàng, Báo cáo, Chi phí, Nhân viên, Cài đặt là placeholder; trang Bàn đã dùng thật.
@@ -141,6 +144,10 @@ public/               favicon và icon PWA
 
 ## Kiểm thử
 
-Bộ test hiện có 242 test (38 file) cho logic tính tiền, store/persist v3, bàn (3 trạng thái, served, đơn mở, CRUD/xoá mềm), tìm kiếm, routing, các luồng giỏ hàng/thanh toán/đơn nháp và các component chính. Server có thêm 64 unit test và 108 e2e test (`cd server && npm test && npm run test:e2e`; e2e cần Postgres + `TEST_DATABASE_URL`). Test chạy trên jsdom với viewport 1440×900; kiểm tra giao diện thật được thực hiện thêm bằng trình duyệt ở các kích thước 1440×900, 1280×800, 1024×768 và 390×844. Ảnh tham chiếu: [desktop](docs/screenshots/pos-desktop.jpg), [1024×768](docs/screenshots/pos-1024.jpg), [mobile](docs/screenshots/pos-mobile.jpg).
+Bộ test hiện có 346 test (39 file) cho logic tính tiền, store/persist v4, bàn (3 trạng thái, served, đơn mở, CRUD/xoá mềm), đơn chờ (không trùng bản ghi, giữ giỏ khi resume, cash fields đúng, vá bàn/served, sửa qty/xoá dòng chưa ra + totals), popup dùng chung (size `xl`, 2 cột, chọn bàn/served trong popup, stepper/xoá món chờ), 3 trạng thái đơn, tìm kiếm, routing, các luồng giỏ hàng/thanh toán/đơn nháp và các component chính. Server có thêm 64 unit test và 108 e2e test (`cd server && npm test && npm run test:e2e`; e2e cần Postgres + `TEST_DATABASE_URL`). Server không đổi trong module popup, lần chỉnh giao diện popup lẫn lần sửa món chờ: persist vẫn là `restodash-pos-v1` v4, không migration mới. Test chạy trên jsdom với viewport 1440×900; kiểm tra giao diện thật được thực hiện thêm bằng trình duyệt ở các kích thước 1440×900, 1280×800, 1024×768 và 390×844. Ảnh tham chiếu: [desktop](docs/screenshots/pos-desktop.jpg), [1024×768](docs/screenshots/pos-1024.jpg), [mobile](docs/screenshots/pos-mobile.jpg).
+
+Báo cáo chỉnh giao diện popup (`xl` 2 cột, chọn bàn/served trong popup, đổi bàn đơn chờ): [2026-11-22-order-popup-ui-report.md](docs/superpowers/reports/2026-11-22-order-popup-ui-report.md).
+
+Báo cáo sửa món chưa ra trong popup đơn chờ (stepper −/+, xoá, tổng/tiền thu tính lại; món đã ra vẫn khoá): [2026-11-22-edit-pending-items-report.md](docs/superpowers/reports/2026-11-22-edit-pending-items-report.md).
 
 Thiết kế tham chiếu: [Restaurant POS Dashboard UI Design](https://dribbble.com/shots/27321876-Restaurant-POS-Dashboard-UI-Design) của Rexnor studio. Font Plus Jakarta Sans, icon Lucide.
